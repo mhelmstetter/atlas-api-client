@@ -122,76 +122,6 @@ public class PatternAnalyzer {
     }
     
     /**
-     * Analyze time series data to identify patterns
-     * 
-     * @param dataPoints List of data point values
-     * @return Pattern analysis result
-     */
-    public PatternResult analyzePattern(List<Double> dataPoints) {
-        if (dataPoints == null || dataPoints.size() < 3) {
-            return new PatternResult(PatternType.UNKNOWN, 0, 0, 0, 0, 
-                    "Insufficient data points for analysis");
-        }
-        
-        // Calculate basic statistics
-        double mean = calculateMean(dataPoints);
-        double stdDev = calculateStdDev(dataPoints, mean);
-        double volatility = stdDev / mean; // Coefficient of variation
-        
-        // Get min and max values
-        double min = Double.MAX_VALUE;
-        double max = Double.MIN_VALUE;
-        for (Double point : dataPoints) {
-            if (point < min) min = point;
-            if (point > max) max = point;
-        }
-        
-        // Calculate overall range as percentage of mean
-        double overallRange = max - min;
-        double relativeRange = (mean > 0) ? overallRange / mean : 0;
-        
-        // Count spikes (significant deviations from previous point)
-        int spikeCount = countSpikes(dataPoints, SPIKE_THRESHOLD);
-        
-        // Calculate trend using linear regression
-        double[] trendLine = calculateTrendLine(dataPoints);
-        double slope = trendLine[0]; // Slope of the trend line
-        double relativeSlope = slope * dataPoints.size() / mean; // Relative change over the whole period
-        
-        // Check for sawtooth pattern
-        int sawtoothCycles = detectSawtoothCycles(dataPoints);
-        
-        // Determine the primary pattern
-        PatternType patternType;
-        String details = "";
-        
-        if (sawtoothCycles >= MIN_SAWTOOTH_CYCLES) {
-            patternType = PatternType.SAWTOOTH;
-            details = "Regular up-and-down cycle detected";
-        } else if (Math.abs(relativeSlope) >= TREND_THRESHOLD) {
-            // Significant trend detected
-            patternType = (slope > 0) ? PatternType.TRENDING_UP : PatternType.TRENDING_DOWN;
-            details = String.format("%.1f%% %s over the period", 
-                    Math.abs(relativeSlope) * 100,
-                    (slope > 0) ? "increase" : "decrease");
-        } else if (volatility <= VOLATILITY_THRESHOLD) {
-            // Low volatility indicates flat pattern
-            patternType = PatternType.FLAT;
-            details = "Stable metrics with low variation";
-        } else if (spikeCount > dataPoints.size() / 10) {
-            // Frequent spikes indicate spiky pattern
-            patternType = PatternType.SPIKY;
-            details = "Frequent short-term variations detected";
-        } else {
-            // Default case
-            patternType = PatternType.UNKNOWN;
-            details = "No clear pattern identified";
-        }
-        
-        return new PatternResult(patternType, volatility, slope, spikeCount, sawtoothCycles, details);
-    }
-    
-    /**
      * Calculate the mean of a list of data points
      */
     private double calculateMean(List<Double> dataPoints) {
@@ -278,44 +208,173 @@ public class PatternAnalyzer {
     }
     
     /**
-     * Detect sawtooth cycles in the data
+     * Improved method to detect sawtooth cycles in the data
+     * Requires significant amplitudes and consistent periods
      * 
      * @param dataPoints List of data points
      * @return Number of sawtooth cycles detected
      */
     private int detectSawtoothCycles(List<Double> dataPoints) {
-        List<Integer> extrema = new ArrayList<>();
+        if (dataPoints.size() < 4) {
+            return 0;  // Need at least 4 points for proper detection
+        }
         
-        // Find local extrema (peaks and valleys)
+        // Calculate statistics to establish thresholds
+        double mean = calculateMean(dataPoints);
+        double stdDev = calculateStdDev(dataPoints, mean);
+        
+        // Minimum amplitude required for a peak or valley (as a percentage of mean)
+        // Only consider peaks/valleys that differ from neighbors by at least this amount
+        double minAmplitudeRatio = 0.05;  // 5% of mean value
+        double minAmplitude = mean * minAmplitudeRatio;
+        
+        // If data has very low variability overall, increase the required amplitude
+        if (stdDev / mean < 0.1) {  // If coefficient of variation is low
+            minAmplitude = stdDev * 0.5;  // Use half of standard deviation
+        }
+
+        List<Integer> extremaIndices = new ArrayList<>();
+        List<Boolean> extremaIsPeak = new ArrayList<>();  // true for peak, false for valley
+        
+        // Find significant local extrema (peaks and valleys)
         for (int i = 1; i < dataPoints.size() - 1; i++) {
             double prev = dataPoints.get(i - 1);
             double curr = dataPoints.get(i);
             double next = dataPoints.get(i + 1);
             
-            if ((curr > prev && curr > next) || (curr < prev && curr < next)) {
-                extrema.add(i);
+            boolean isPeak = curr > prev && curr > next;
+            boolean isValley = curr < prev && curr < next;
+            
+            // Only include if the change is significant
+            if (isPeak && curr - prev >= minAmplitude && curr - next >= minAmplitude) {
+                extremaIndices.add(i);
+                extremaIsPeak.add(true);
+            } else if (isValley && prev - curr >= minAmplitude && next - curr >= minAmplitude) {
+                extremaIndices.add(i);
+                extremaIsPeak.add(false);
             }
+        }
+        
+        // If we don't have enough extrema, not a sawtooth
+        if (extremaIndices.size() < 4) {  // Need at least 2 full cycles (peak-valley-peak-valley)
+            return 0;
         }
         
         // Count alternating peaks and valleys
         int cycleCount = 0;
-        boolean expectingPeak = false; // Start with expecting a valley
+        List<Integer> cycleLengths = new ArrayList<>();
         
-        for (int i = 0; i < extrema.size(); i++) {
-            int idx = extrema.get(i);
-            boolean isPeak = idx > 0 && idx < dataPoints.size() - 1 &&
-                    dataPoints.get(idx) > dataPoints.get(idx - 1) &&
-                    dataPoints.get(idx) > dataPoints.get(idx + 1);
+        // Process extrema to count proper alternating peaks and valleys
+        boolean expectingPeak = !extremaIsPeak.get(0);  // Start with opposite of first extrema
+        int lastExtremaIndex = -1;
+        
+        for (int i = 0; i < extremaIndices.size(); i++) {
+            int idx = extremaIndices.get(i);
+            boolean isPeak = extremaIsPeak.get(i);
             
             if (isPeak == expectingPeak) {
                 if (expectingPeak) {
                     cycleCount++;
+                    // Track cycle length if we have a complete cycle
+                    if (lastExtremaIndex != -1) {
+                        cycleLengths.add(idx - lastExtremaIndex);
+                    }
                 }
-                expectingPeak = !expectingPeak; // Flip for next iteration
+                lastExtremaIndex = idx;
+                expectingPeak = !expectingPeak;
+            }
+        }
+        
+        // Check if the cycle lengths are consistent (sawtooth should have consistent periods)
+        if (cycleLengths.size() >= 2) {
+            double cycleAvg = calculateMean(cycleLengths.stream().mapToDouble(i -> (double) i).boxed().collect(java.util.stream.Collectors.toList()));
+            double cycleStdDev = calculateStdDev(cycleLengths.stream().mapToDouble(i -> (double) i).boxed().collect(java.util.stream.Collectors.toList()), cycleAvg);
+            
+            // If coefficient of variation of cycle lengths is too high, not a consistent sawtooth
+            if (cycleStdDev / cycleAvg > 0.4) {  // 40% variation in cycle length
+                // If variation is too high, this is more likely spiky data
+                return 0; 
             }
         }
         
         return cycleCount;
+    }
+
+    /**
+     * Distinguishes between spiky and sawtooth patterns more accurately
+     */
+    public PatternResult analyzePattern(List<Double> dataPoints) {
+        if (dataPoints == null || dataPoints.size() < 3) {
+            return new PatternResult(PatternType.UNKNOWN, 0, 0, 0, 0, 
+                    "Insufficient data points for analysis");
+        }
+        
+        // Calculate basic statistics
+        double mean = calculateMean(dataPoints);
+        double stdDev = calculateStdDev(dataPoints, mean);
+        double volatility = stdDev / mean; // Coefficient of variation
+        
+        // Get min and max values
+        double min = Double.MAX_VALUE;
+        double max = Double.MIN_VALUE;
+        for (Double point : dataPoints) {
+            if (point < min) min = point;
+            if (point > max) max = point;
+        }
+        
+        // Calculate overall range as percentage of mean
+        double overallRange = max - min;
+        double relativeRange = (mean > 0) ? overallRange / mean : 0;
+        
+        // Count spikes (significant deviations from previous point)
+        int spikeCount = countSpikes(dataPoints, SPIKE_THRESHOLD);
+        
+        // Calculate trend using linear regression
+        double[] trendLine = calculateTrendLine(dataPoints);
+        double slope = trendLine[0]; // Slope of the trend line
+        double relativeSlope = slope * dataPoints.size() / mean; // Relative change over the whole period
+        
+        // Check for sawtooth pattern with improved detection
+        int sawtoothCycles = detectSawtoothCycles(dataPoints);
+        
+        // Analyze spike distribution - true spiky data tends to have random spikes
+        double spikeRatio = (double) spikeCount / dataPoints.size();
+        
+        // Determine the primary pattern
+        PatternType patternType;
+        String details = "";
+        
+        if (sawtoothCycles >= MIN_SAWTOOTH_CYCLES) {
+            patternType = PatternType.SAWTOOTH;
+            details = "Regular up-and-down cycle detected with " + sawtoothCycles + " cycles";
+        } else if (spikeRatio > 0.2) {
+            // If more than 20% of points are spikes, it's definitely spiky
+            patternType = PatternType.SPIKY;
+            details = "Frequent short-term variations detected, " + 
+                      String.format("%.1f", spikeRatio * 100) + "% of points are spikes";
+        } else if (Math.abs(relativeSlope) >= TREND_THRESHOLD) {
+            // Significant trend detected
+            patternType = (slope > 0) ? PatternType.TRENDING_UP : PatternType.TRENDING_DOWN;
+            details = String.format("%.1f%% %s over the period", 
+                    Math.abs(relativeSlope) * 100,
+                    (slope > 0) ? "increase" : "decrease");
+        } else if (volatility <= VOLATILITY_THRESHOLD) {
+            // Low volatility indicates flat pattern
+            patternType = PatternType.FLAT;
+            details = "Stable metrics with low variation";
+        } else {
+            // More sophisticated analysis for borderline cases
+            if (spikeCount > 0 && spikeCount <= dataPoints.size() / 10) {
+                patternType = PatternType.SPIKY;
+                details = "Moderate spikes detected (" + spikeCount + " spikes)";
+            } else {
+                // Default case
+                patternType = PatternType.UNKNOWN;
+                details = "No clear pattern identified";
+            }
+        }
+        
+        return new PatternResult(patternType, volatility, slope, spikeCount, sawtoothCycles, details);
     }
     
     /**

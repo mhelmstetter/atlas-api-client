@@ -64,6 +64,16 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--chartOutputDir" }, description = "Directory for pattern charts", required = false, defaultValue = "charts")
     private String chartOutputDir;
     
+    // Add these options to the MongoDBAtlasClient class
+    @Option(names = { "--combinedCharts" }, description = "Generate combined charts per metric", required = false, defaultValue = "true")
+    private boolean combinedCharts;
+
+    @Option(names = { "--generateDashboard" }, description = "Generate project dashboards", required = false, defaultValue = "true")
+    private boolean generateDashboard;
+
+    @Option(names = { "--generateHtmlIndex" }, description = "Generate HTML index of all charts", required = false, defaultValue = "true")
+    private boolean generateHtmlIndex;
+    
     // Service components
     private AtlasApiClient apiClient;
     private MetricsProcessor metricsProcessor;
@@ -91,19 +101,45 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             exporter.exportPatternAnalysisToCSV(results, exportPatternsCsvFilename);
         }
         
-        // Generate pattern charts if enabled
-        if (analyzePatterns && generateCharts) {
+        // Generate visualizations if any visualization option is enabled
+        if (analyzePatterns && (generateCharts || combinedCharts || generateDashboard || generateHtmlIndex)) {
             PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir);
             
+            // Generate only what's requested
             for (ProjectMetricsResult projectResult : results.values()) {
-                reporter.generatePatternCharts(projectResult, period, granularity);
+                // Individual per-host charts
+                if (generateCharts) {
+                    logger.info("Generating individual charts for project: {}", projectResult.getProjectName());
+                    reporter.generatePatternCharts(projectResult, period, granularity);
+                }
+                
+                // Combined charts (one per metric with all hosts)
+                if (combinedCharts) {
+                    logger.info("Generating combined charts for project: {}", projectResult.getProjectName());
+                    for (String metric : projectResult.getMetrics()) {
+                        reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
+                    }
+                }
+                
+                // Project dashboard (all metrics on one page)
+                if (generateDashboard) {
+                    logger.info("Generating dashboard for project: {}", projectResult.getProjectName());
+                    reporter.generateProjectDashboard(projectResult, period, granularity);
+                }
             }
             
-            logger.info("Pattern charts generated in directory: {}", chartOutputDir);
+            // Generate HTML index if requested
+            if (generateHtmlIndex) {
+                logger.info("Generating HTML index");
+                reporter.createHtmlIndex(results);
+            }
+            
+            logger.info("Visualizations generated in directory: {}", chartOutputDir);
         }
         
         return 0;
     }
+
     
     public static void main(String[] args) {
         MongoDBAtlasClient client = new MongoDBAtlasClient();
