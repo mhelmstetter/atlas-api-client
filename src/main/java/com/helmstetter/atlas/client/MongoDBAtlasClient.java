@@ -52,6 +52,18 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--exportCsvFilename" }, description = "Export project summary to CSV file", required = false)
     private String exportCsvFilename;
     
+    @Option(names = { "--analyzePatterns" }, description = "Enable pattern analysis", required = false, defaultValue = "false")
+    private boolean analyzePatterns;
+    
+    @Option(names = { "--exportPatternsCsvFilename" }, description = "Export pattern analysis to CSV file", required = false)
+    private String exportPatternsCsvFilename;
+    
+    @Option(names = { "--generateCharts" }, description = "Generate pattern charts", required = false, defaultValue = "false")
+    private boolean generateCharts;
+    
+    @Option(names = { "--chartOutputDir" }, description = "Directory for pattern charts", required = false, defaultValue = "charts")
+    private String chartOutputDir;
+    
     // Service components
     private AtlasApiClient apiClient;
     private MetricsProcessor metricsProcessor;
@@ -61,16 +73,33 @@ public class MongoDBAtlasClient implements Callable<Integer> {
         // Initialize the API client
         this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey);
         
-        // Initialize the metrics processor
-        this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity);
+        // Initialize the metrics processor with pattern analysis option
+        this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
         
         // Process metrics for all projects
         Map<String, ProjectMetricsResult> results = metricsProcessor.processProjectMetrics(includeProjectNames);
         
         // Export to CSV if filename was provided
         if (exportCsvFilename != null && !exportCsvFilename.isEmpty()) {
-            CsvExporter exporter = new CsvExporter(metrics);
+            CsvExporter exporter = new CsvExporter(metrics, analyzePatterns);
             exporter.exportProjectMetricsToCSV(results, exportCsvFilename);
+        }
+        
+        // Export pattern analysis to CSV if enabled and filename was provided
+        if (analyzePatterns && exportPatternsCsvFilename != null && !exportPatternsCsvFilename.isEmpty()) {
+            CsvExporter exporter = new CsvExporter(metrics);
+            exporter.exportPatternAnalysisToCSV(results, exportPatternsCsvFilename);
+        }
+        
+        // Generate pattern charts if enabled
+        if (analyzePatterns && generateCharts) {
+            PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir);
+            
+            for (ProjectMetricsResult projectResult : results.values()) {
+                reporter.generatePatternCharts(projectResult, period, granularity);
+            }
+            
+            logger.info("Pattern charts generated in directory: {}", chartOutputDir);
         }
         
         return 0;

@@ -10,6 +10,9 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.helmstetter.atlas.client.PatternAnalyzer.PatternResult;
+import com.helmstetter.atlas.client.PatternAnalyzer.PatternType;
+
 /**
  * Processes metrics data from MongoDB Atlas API
  */
@@ -21,12 +24,21 @@ public class MetricsProcessor {
     private final List<String> metrics;
     private final String period;
     private final String granularity;
+    private final PatternAnalyzer patternAnalyzer;
+    private final boolean analyzePatterns;
     
     public MetricsProcessor(AtlasApiClient apiClient, List<String> metrics, String period, String granularity) {
+        this(apiClient, metrics, period, granularity, false);
+    }
+    
+    public MetricsProcessor(AtlasApiClient apiClient, List<String> metrics, String period, 
+            String granularity, boolean analyzePatterns) {
         this.apiClient = apiClient;
         this.metrics = metrics;
         this.period = period;
         this.granularity = granularity;
+        this.patternAnalyzer = new PatternAnalyzer();
+        this.analyzePatterns = analyzePatterns;
     }
     
     /**
@@ -149,8 +161,36 @@ public class MetricsProcessor {
                 return;
             }
             
+            // Process each measurement
+            String location = hostname + ":" + port;
+            processMeasurements(projectResult, measurements, location);
             
-            processMeasurements(projectResult, measurements, hostname);
+            // Analyze patterns if enabled
+            if (analyzePatterns) {
+                for (Map<String, Object> measurement : measurements) {
+                    String name = (String) measurement.get("name");
+                    
+                    // Skip metrics that are not in our requested metrics list
+                    if (!metrics.contains(name)) {
+                        continue;
+                    }
+                    
+                    List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                    if (dataPoints != null && !dataPoints.isEmpty()) {
+                        // Extract values for pattern analysis
+                        List<Double> values = extractDataPointValues(dataPoints);
+                        
+                        // Analyze pattern
+                        PatternResult patternResult = patternAnalyzer.analyzePattern(values);
+                        
+                        // Store pattern result
+                        projectResult.addPatternResult(name, location, patternResult);
+                        
+                        logger.info("{} {} -> Pattern: {}", 
+                                projectResult.getProjectName(), name, patternResult);
+                    }
+                }
+            }
             
         } catch (Exception e) {
             logger.error("Error getting system measurements for {}:{}: {}", 
@@ -210,6 +250,33 @@ public class MetricsProcessor {
                 String location = hostname + ":" + port + ", partition: " + partitionName;
                 processMeasurements(projectResult, measurements, location);
                 
+                // Analyze patterns if enabled
+                if (analyzePatterns) {
+                    for (Map<String, Object> measurement : measurements) {
+                        String name = (String) measurement.get("name");
+                        
+                        // Skip metrics that are not in our requested metrics list
+                        if (!diskMetrics.contains(name)) {
+                            continue;
+                        }
+                        
+                        List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                        if (dataPoints != null && !dataPoints.isEmpty()) {
+                            // Extract values for pattern analysis
+                            List<Double> values = extractDataPointValues(dataPoints);
+                            
+                            // Analyze pattern
+                            PatternResult patternResult = patternAnalyzer.analyzePattern(values);
+                            
+                            // Store pattern result
+                            projectResult.addPatternResult(name, location, patternResult);
+                            
+                            logger.info("{} {} {} -> Pattern: {}", 
+                                    projectResult.getProjectName(), name, partitionName, patternResult);
+                        }
+                    }
+                }
+                
             } catch (Exception e) {
                 logger.error("Error getting disk measurements for {}:{} partition {}: {}", 
                         hostname, port, partitionName, e.getMessage());
@@ -242,24 +309,7 @@ public class MetricsProcessor {
             }
             
             // Extract values from data points
-            List<Double> values = new ArrayList<>();
-            for (Map<String, Object> dataPoint : dataPoints) {
-                Object valueObj = dataPoint.get("value");
-                Double value = null;
-                
-                // Handle different numeric types
-                if (valueObj instanceof Integer) {
-                    value = ((Integer) valueObj).doubleValue();
-                } else if (valueObj instanceof Double) {
-                    value = (Double) valueObj;
-                } else if (valueObj instanceof Long) {
-                    value = ((Long) valueObj).doubleValue();
-                }
-                
-                if (value != null) {
-                    values.add(value);
-                }
-            }
+            List<Double> values = extractDataPointValues(dataPoints);
             
             if (!values.isEmpty()) {
                 // Calculate statistics from this batch of values
@@ -292,6 +342,33 @@ public class MetricsProcessor {
     }
     
     /**
+     * Extract values from a list of data points
+     */
+    private List<Double> extractDataPointValues(List<Map<String, Object>> dataPoints) {
+        List<Double> values = new ArrayList<>();
+        
+        for (Map<String, Object> dataPoint : dataPoints) {
+            Object valueObj = dataPoint.get("value");
+            Double value = null;
+            
+            // Handle different numeric types
+            if (valueObj instanceof Integer) {
+                value = ((Integer) valueObj).doubleValue();
+            } else if (valueObj instanceof Double) {
+                value = (Double) valueObj;
+            } else if (valueObj instanceof Long) {
+                value = ((Long) valueObj).doubleValue();
+            }
+            
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        
+        return values;
+    }
+    
+    /**
      * Log a summary of the project metrics
      */
     private void logProjectSummary(ProjectMetricsResult result) {
@@ -314,10 +391,29 @@ public class MetricsProcessor {
                 logger.info("  {}: avg: {}{}, max: {}{} (on {})", 
                         metric, formatValue(displayAvg), getMetricUnit(metric), 
                         formatValue(displayMax), getMetricUnit(metric), location);
+                
+                // Log pattern information if available
+                if (analyzePatterns && result.hasPatternData(metric)) {
+                    PatternType dominantPattern = result.getDominantPattern(metric);
+                    Map<PatternType, Integer> patternCounts = result.countPatternTypes(metric);
+                    
+                    logger.info("  {} pattern: {} ({})", metric, dominantPattern.getDescription(),
+                            formatPatternCounts(patternCounts));
+                }
             } else {
                 logger.warn("  {}: No valid measurements found", metric);
             }
         }
+    }
+    
+    /**
+     * Format pattern counts for display
+     */
+    private String formatPatternCounts(Map<PatternType, Integer> patternCounts) {
+        return patternCounts.entrySet().stream()
+                .filter(e -> e.getValue() > 0)
+                .map(e -> e.getKey().name() + ": " + e.getValue())
+                .collect(Collectors.joining(", "));
     }
     
     /**
