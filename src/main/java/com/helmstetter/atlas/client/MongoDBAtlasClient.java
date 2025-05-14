@@ -49,7 +49,7 @@ public class MongoDBAtlasClient implements Callable<Integer> {
         defaultValue = "PT10S")
     private String granularity;
     
-    @Option(names = { "--exportCsv" }, description = "Export project summary to CSV file", required = false)
+    @Option(names = { "--exportCsvFilename" }, description = "Export project summary to CSV file", required = false)
     private String exportCsvFilename;
     
     // Service components

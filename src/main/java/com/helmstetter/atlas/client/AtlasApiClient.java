@@ -128,24 +128,6 @@ public class AtlasApiClient {
     }
     
     /**
-     * Get processes for a specific Atlas cluster
-     */
-    public List<Map<String, Object>> getProcessesForCluster(String projectId, String clusterName) {
-        String url = BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + clusterName + "/processes";
-        
-        logger.debug("Fetching processes for cluster {} in project {}", clusterName, projectId);
-        String responseBody = getResponseBody(url, API_VERSION_V2);
-
-        try {
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-            return (List<Map<String, Object>>) responseMap.get("results");
-        } catch (Exception e) {
-            logger.error("Failed to retrieve processes for cluster {}: {}", clusterName, e.getMessage());
-            throw new RuntimeException("Failed to parse JSON response", e);
-        }
-    }
-    
-    /**
      * Get disk partition information for a specific process
      */
     public List<Map<String, Object>> getProcessDisks(String projectId, String hostname, int port) {
