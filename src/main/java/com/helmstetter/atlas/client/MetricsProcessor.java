@@ -18,14 +18,12 @@ public class MetricsProcessor {
     private static final Logger logger = LoggerFactory.getLogger(MetricsProcessor.class);
     
     private final AtlasApiClient apiClient;
-    private final ClusterMapper clusterMapper;
     private final List<String> metrics;
     private final String period;
     private final String granularity;
     
     public MetricsProcessor(AtlasApiClient apiClient, List<String> metrics, String period, String granularity) {
         this.apiClient = apiClient;
-        this.clusterMapper = new ClusterMapper(apiClient);
         this.metrics = metrics;
         this.period = period;
         this.granularity = granularity;
@@ -94,11 +92,6 @@ public class MetricsProcessor {
             List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
             logger.info("Processing project: {} with {} processes", projectName, processes.size());
             
-            // Build process to cluster mapping
-            Map<String, String> processToClusterMap = clusterMapper.buildProcessToClusterMapping(projectId);
-            logger.info("Built mapping for {} processes across clusters in project {}", 
-                    processToClusterMap.size(), projectName);
-            
             // Process each MongoDB instance
             for (Map<String, Object> process : processes) {
                 String typeName = (String) process.get("typeName");
@@ -109,19 +102,13 @@ public class MetricsProcessor {
                 String hostname = (String) process.get("hostname");
                 int port = (int) process.get("port");
                 
-                // Lookup cluster name from our mapping
-                String clusterName = "unknown";
-                if (processToClusterMap.containsKey(hostname)) {
-                    clusterName = processToClusterMap.get(hostname);
-                }
-                
                 try {
                     // Process system metrics
-                    processSystemMetrics(projectResult, hostname, port, clusterName);
+                    processSystemMetrics(projectResult, hostname, port);
                     
                     // Process disk metrics if requested
                     if (metrics.stream().anyMatch(m -> m.startsWith("DISK_"))) {
-                        processDiskMetrics(projectResult, hostname, port, clusterName);
+                        processDiskMetrics(projectResult, hostname, port);
                     }
                 } catch (Exception e) {
                     // Log error but continue with other processes
@@ -139,7 +126,7 @@ public class MetricsProcessor {
      */
     private void processSystemMetrics(
             ProjectMetricsResult projectResult, 
-            String hostname, int port, String clusterName) {
+            String hostname, int port) {
         
         // Only include non-disk metrics
         List<String> systemMetrics = metrics.stream()
@@ -157,14 +144,13 @@ public class MetricsProcessor {
                             hostname, port, systemMetrics, granularity, period);
             
             if (measurements == null || measurements.isEmpty()) {
-                logger.warn("{} {} (cluster: {}) -> No measurements data found", 
-                        projectResult.getProjectName(), hostname + ":" + port, clusterName);
+                logger.warn("{} {} -> No measurements data found", 
+                        projectResult.getProjectName(), hostname + ":" + port);
                 return;
             }
             
-            // Process the measurements
-            String location = clusterName + " (" + hostname + ":" + port + ")";
-            processMeasurements(projectResult, measurements, location);
+            
+            processMeasurements(projectResult, measurements, hostname);
             
         } catch (Exception e) {
             logger.error("Error getting system measurements for {}:{}: {}", 
@@ -177,7 +163,7 @@ public class MetricsProcessor {
      */
     private void processDiskMetrics(
             ProjectMetricsResult projectResult, 
-            String hostname, int port, String clusterName) {
+            String hostname, int port) {
         
         String projectId = projectResult.getProjectId();
         
@@ -221,8 +207,7 @@ public class MetricsProcessor {
                 }
                 
                 // Process the measurements
-                String location = clusterName + " (" + hostname + ":" + port + 
-                        ", partition: " + partitionName + ")";
+                String location = hostname + ":" + port + ", partition: " + partitionName;
                 processMeasurements(projectResult, measurements, location);
                 
             } catch (Exception e) {
@@ -299,9 +284,6 @@ public class MetricsProcessor {
                     displayMax = max / 1024.0; // Convert MB to GB
                 }
                 
-                logger.info("{} {} -> max: {}{}", 
-                        projectResult.getProjectName(), name, 
-                        formatValue(displayMax), getMetricUnit(name));
             } else {
                 logger.warn("{} {} -> No valid data points found", 
                         projectResult.getProjectName(), name);
