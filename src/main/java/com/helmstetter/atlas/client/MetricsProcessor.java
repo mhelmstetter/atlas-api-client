@@ -1,6 +1,5 @@
 package com.helmstetter.atlas.client;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,18 +57,13 @@ public class MetricsProcessor {
         Map<String, ProjectMetricsResult> results = new HashMap<>();
         
         // Process each project
-        for (Map.Entry<String, String> entry : projectMap.entrySet()) {
-            String projectName = entry.getKey();
-            String projectId = entry.getValue();
-            
+        projectMap.forEach((projectName, projectId) -> {
             try {
                 // Create a result object for this project
                 ProjectMetricsResult projectResult = new ProjectMetricsResult(projectName, projectId);
                 
                 // Initialize metrics
-                for (String metric : metrics) {
-                    projectResult.initializeMetric(metric);
-                }
+                metrics.forEach(projectResult::initializeMetric);
                 
                 // Process the project
                 processProject(projectResult);
@@ -85,7 +79,7 @@ public class MetricsProcessor {
             } catch (Exception e) {
                 logger.error("Error processing project {}: {}", projectName, e.getMessage());
             }
-        }
+        });
         
         return results;
     }
@@ -104,13 +98,16 @@ public class MetricsProcessor {
             List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
             logger.info("Processing project: {} with {} processes", projectName, processes.size());
             
+            // Filter out config servers and mongos instances
+            List<Map<String, Object>> filteredProcesses = processes.stream()
+                    .filter(process -> {
+                        String typeName = (String) process.get("typeName");
+                        return !typeName.startsWith("SHARD_CONFIG") && !typeName.equals("SHARD_MONGOS");
+                    })
+                    .collect(Collectors.toList());
+            
             // Process each MongoDB instance
-            for (Map<String, Object> process : processes) {
-                String typeName = (String) process.get("typeName");
-                if (typeName.startsWith("SHARD_CONFIG") || typeName.equals("SHARD_MONGOS")) {
-                    continue; // Skip config servers and mongos instances
-                }
-                
+            filteredProcesses.forEach(process -> {
                 String hostname = (String) process.get("hostname");
                 int port = (int) process.get("port");
                 
@@ -127,7 +124,7 @@ public class MetricsProcessor {
                     logger.error("Error getting measurements for process {}:{} in project {}: {}", 
                             hostname, port, projectName, e.getMessage());
                 }
-            }
+            });
         } catch (Exception e) {
             logger.error("Error processing project {}: {}", projectName, e.getMessage());
         }
@@ -167,29 +164,7 @@ public class MetricsProcessor {
             
             // Analyze patterns if enabled
             if (analyzePatterns) {
-                for (Map<String, Object> measurement : measurements) {
-                    String name = (String) measurement.get("name");
-                    
-                    // Skip metrics that are not in our requested metrics list
-                    if (!metrics.contains(name)) {
-                        continue;
-                    }
-                    
-                    List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
-                    if (dataPoints != null && !dataPoints.isEmpty()) {
-                        // Extract values for pattern analysis
-                        List<Double> values = extractDataPointValues(dataPoints);
-                        
-                        // Analyze pattern
-                        PatternResult patternResult = patternAnalyzer.analyzePattern(values);
-                        
-                        // Store pattern result
-                        projectResult.addPatternResult(name, location, patternResult);
-                        
-                        logger.info("{} {} -> Pattern: {}", 
-                                projectResult.getProjectName(), name, patternResult);
-                    }
-                }
+                analyzePatterns(projectResult, measurements, location);
             }
             
         } catch (Exception e) {
@@ -207,20 +182,6 @@ public class MetricsProcessor {
         
         String projectId = projectResult.getProjectId();
         
-        // First get the disk partitions
-        List<Map<String, Object>> disks;
-        try {
-            disks = apiClient.getProcessDisks(projectId, hostname, port);
-            if (disks.isEmpty()) {
-                logger.warn("No disk partitions found for process {}:{}", hostname, port);
-                return;
-            }
-        } catch (Exception e) {
-            logger.error("Failed to get disk partitions for process {}:{}: {}", 
-                    hostname, port, e.getMessage());
-            return;
-        }
-        
         // Filter for disk metrics only
         List<String> diskMetrics = metrics.stream()
                 .filter(m -> m.startsWith("DISK_"))
@@ -230,57 +191,48 @@ public class MetricsProcessor {
             return; // Skip if no disk metrics requested
         }
         
-        // Process each partition
-        for (Map<String, Object> disk : disks) {
-            String partitionName = (String) disk.get("partitionName");
+        try {
+            // Get all disk partitions
+            List<Map<String, Object>> disks = apiClient.getProcessDisks(projectId, hostname, port);
             
-            try {
-                // Get measurements for this disk partition
-                List<Map<String, Object>> measurements = 
-                        apiClient.getDiskMeasurements(projectId, hostname, port, 
-                                partitionName, diskMetrics, granularity, period);
-                
-                if (measurements == null || measurements.isEmpty()) {
-                    logger.warn("{} {}:{} partition {} -> No disk measurements found", 
-                            projectResult.getProjectName(), hostname, port, partitionName);
-                    continue;
-                }
-                
-                // Process the measurements
-                String location = hostname + ":" + port + ", partition: " + partitionName;
-                processMeasurements(projectResult, measurements, location);
-                
-                // Analyze patterns if enabled
-                if (analyzePatterns) {
-                    for (Map<String, Object> measurement : measurements) {
-                        String name = (String) measurement.get("name");
-                        
-                        // Skip metrics that are not in our requested metrics list
-                        if (!diskMetrics.contains(name)) {
-                            continue;
-                        }
-                        
-                        List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
-                        if (dataPoints != null && !dataPoints.isEmpty()) {
-                            // Extract values for pattern analysis
-                            List<Double> values = extractDataPointValues(dataPoints);
-                            
-                            // Analyze pattern
-                            PatternResult patternResult = patternAnalyzer.analyzePattern(values);
-                            
-                            // Store pattern result
-                            projectResult.addPatternResult(name, location, patternResult);
-                            
-                            logger.info("{} {} {} -> Pattern: {}", 
-                                    projectResult.getProjectName(), name, partitionName, patternResult);
-                        }
-                    }
-                }
-                
-            } catch (Exception e) {
-                logger.error("Error getting disk measurements for {}:{} partition {}: {}", 
-                        hostname, port, partitionName, e.getMessage());
+            if (disks.isEmpty()) {
+                logger.warn("No disk partitions found for process {}:{}", hostname, port);
+                return;
             }
+            
+            // Process each partition
+            for (Map<String, Object> disk : disks) {
+                String partitionName = (String) disk.get("partitionName");
+                
+                try {
+                    // Get measurements for this disk partition
+                    List<Map<String, Object>> measurements = 
+                            apiClient.getDiskMeasurements(projectId, hostname, port, 
+                                    partitionName, diskMetrics, granularity, period);
+                    
+                    if (measurements == null || measurements.isEmpty()) {
+                        logger.warn("{} {}:{} partition {} -> No disk measurements found", 
+                                projectResult.getProjectName(), hostname, port, partitionName);
+                        continue;
+                    }
+                    
+                    // Process the measurements
+                    String location = hostname + ":" + port + ", partition: " + partitionName;
+                    processMeasurements(projectResult, measurements, location);
+                    
+                    // Analyze patterns if enabled
+                    if (analyzePatterns) {
+                        analyzePatterns(projectResult, measurements, location);
+                    }
+                    
+                } catch (Exception e) {
+                    logger.error("Error getting disk measurements for {}:{} partition {}: {}", 
+                            hostname, port, partitionName, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get disk partitions for process {}:{}: {}", 
+                    hostname, port, e.getMessage());
         }
     }
     
@@ -309,31 +261,14 @@ public class MetricsProcessor {
             }
             
             // Extract values from data points
-            List<Double> values = extractDataPointValues(dataPoints);
+            List<Double> values = MetricsUtils.extractDataPointValues(dataPoints);
             
             if (!values.isEmpty()) {
                 // Calculate statistics from this batch of values
-                double sum = 0.0;
-                double max = Double.MIN_VALUE;
-                
-                for (Double value : values) {
-                    sum += value;
-                    if (value > max) {
-                        max = value;
-                    }
-                }
-                
-                double avg = sum / values.size();
+                ProcessingResult result = MetricsUtils.processValues(values);
                 
                 // Add to project result
-                projectResult.addMeasurement(name, max, location);
-                
-                // Convert MB to GB for memory metrics in display only
-                double displayMax = max;
-                if (name.equals("SYSTEM_MEMORY_USED") || name.equals("SYSTEM_MEMORY_FREE")) {
-                    displayMax = max / 1024.0; // Convert MB to GB
-                }
-                
+                projectResult.addMeasurement(name, result.getMaxValue(), location);
             } else {
                 logger.warn("{} {} -> No valid data points found", 
                         projectResult.getProjectName(), name);
@@ -342,30 +277,36 @@ public class MetricsProcessor {
     }
     
     /**
-     * Extract values from a list of data points
+     * Analyze patterns in measurements data
      */
-    private List<Double> extractDataPointValues(List<Map<String, Object>> dataPoints) {
-        List<Double> values = new ArrayList<>();
+    private void analyzePatterns(
+            ProjectMetricsResult projectResult,
+            List<Map<String, Object>> measurements,
+            String location) {
         
-        for (Map<String, Object> dataPoint : dataPoints) {
-            Object valueObj = dataPoint.get("value");
-            Double value = null;
+        for (Map<String, Object> measurement : measurements) {
+            String name = (String) measurement.get("name");
             
-            // Handle different numeric types
-            if (valueObj instanceof Integer) {
-                value = ((Integer) valueObj).doubleValue();
-            } else if (valueObj instanceof Double) {
-                value = (Double) valueObj;
-            } else if (valueObj instanceof Long) {
-                value = ((Long) valueObj).doubleValue();
+            // Skip metrics that are not in our requested metrics list
+            if (!metrics.contains(name)) {
+                continue;
             }
             
-            if (value != null) {
-                values.add(value);
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+            if (dataPoints != null && !dataPoints.isEmpty()) {
+                // Extract values for pattern analysis
+                List<Double> values = MetricsUtils.extractDataPointValues(dataPoints);
+                
+                // Analyze pattern
+                PatternResult patternResult = patternAnalyzer.analyzePattern(values);
+                
+                // Store pattern result
+                projectResult.addPatternResult(name, location, patternResult);
+                
+                logger.info("{} {} -> Pattern: {}", 
+                        projectResult.getProjectName(), name, patternResult);
             }
         }
-        
-        return values;
     }
     
     /**
@@ -389,8 +330,8 @@ public class MetricsProcessor {
                 }
                 
                 logger.info("  {}: avg: {}{}, max: {}{} (on {})", 
-                        metric, formatValue(displayAvg), getMetricUnit(metric), 
-                        formatValue(displayMax), getMetricUnit(metric), location);
+                        metric, MetricsUtils.formatValue(displayAvg), MetricsUtils.getMetricUnit(metric), 
+                        MetricsUtils.formatValue(displayMax), MetricsUtils.getMetricUnit(metric), location);
                 
                 // Log pattern information if available
                 if (analyzePatterns && result.hasPatternData(metric)) {
@@ -414,26 +355,5 @@ public class MetricsProcessor {
                 .filter(e -> e.getValue() > 0)
                 .map(e -> e.getKey().name() + ": " + e.getValue())
                 .collect(Collectors.joining(", "));
-    }
-    
-    /**
-     * Returns the appropriate unit for a given metric
-     */
-    private String getMetricUnit(String metric) {
-        if (metric.equals("SYSTEM_NORMALIZED_CPU_USER")) {
-            return "%";
-        } else if (metric.equals("SYSTEM_MEMORY_USED") || metric.equals("SYSTEM_MEMORY_FREE")) {
-            return " GB";
-        } else if (metric.equals("DISK_PARTITION_IOPS_TOTAL")) {
-            return " IOPS";
-        }
-        return "";
-    }
-    
-    /**
-     * Format a double value for display (round to 2 decimal places)
-     */
-    private String formatValue(double value) {
-        return String.format("%.2f", value);
     }
 }
