@@ -18,6 +18,7 @@ import picocli.CommandLine.PropertiesDefaultProvider;
 
 /**
  * Main entry point for the MongoDB Atlas API client
+ * Simplified to only generate combined metric charts
  */
 @Command(name = "MongoDBAtlasClient", mixinStandardHelpOptions = true, 
     description = "MongoDB Atlas API client", defaultValueProvider = PropertiesDefaultProvider.class)
@@ -58,19 +59,9 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--exportPatternsCsvFilename" }, description = "Export pattern analysis to CSV file", required = false)
     private String exportPatternsCsvFilename;
     
-    @Option(names = { "--generateCharts" }, description = "Generate pattern charts", required = false, defaultValue = "false")
-    private boolean generateCharts;
-    
-    @Option(names = { "--chartOutputDir" }, description = "Directory for pattern charts", required = false, defaultValue = "charts")
+    @Option(names = { "--chartOutputDir" }, description = "Directory for charts", required = false, defaultValue = "charts")
     private String chartOutputDir;
     
-    // Add these options to the MongoDBAtlasClient class
-    @Option(names = { "--combinedCharts" }, description = "Generate combined charts per metric", required = false, defaultValue = "true")
-    private boolean combinedCharts;
-
-    @Option(names = { "--generateDashboard" }, description = "Generate project dashboards", required = false, defaultValue = "true")
-    private boolean generateDashboard;
-
     @Option(names = { "--generateHtmlIndex" }, description = "Generate HTML index of all charts", required = false, defaultValue = "true")
     private boolean generateHtmlIndex;
     
@@ -101,30 +92,15 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             exporter.exportPatternAnalysisToCSV(results, exportPatternsCsvFilename);
         }
         
-        // Generate visualizations if any visualization option is enabled
-        if (analyzePatterns && (generateCharts || combinedCharts || generateDashboard || generateHtmlIndex)) {
+        // Generate visualizations if pattern analysis is enabled
+        if (analyzePatterns) {
             PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir);
             
-            // Generate only what's requested
+            // Generate combined charts for each project and metric
             for (ProjectMetricsResult projectResult : results.values()) {
-                // Individual per-host charts
-                if (generateCharts) {
-                    logger.info("Generating individual charts for project: {}", projectResult.getProjectName());
-                    reporter.generatePatternCharts(projectResult, period, granularity);
-                }
-                
-                // Combined charts (one per metric with all hosts)
-                if (combinedCharts) {
-                    logger.info("Generating combined charts for project: {}", projectResult.getProjectName());
-                    for (String metric : projectResult.getMetrics()) {
-                        reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
-                    }
-                }
-                
-                // Project dashboard (all metrics on one page)
-                if (generateDashboard) {
-                    logger.info("Generating dashboard for project: {}", projectResult.getProjectName());
-                    reporter.generateProjectDashboard(projectResult, period, granularity);
+                logger.info("Generating charts for project: {}", projectResult.getProjectName());
+                for (String metric : projectResult.getMetrics()) {
+                    reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
                 }
             }
             
@@ -139,7 +115,6 @@ public class MongoDBAtlasClient implements Callable<Integer> {
         
         return 0;
     }
-
     
     public static void main(String[] args) {
         MongoDBAtlasClient client = new MongoDBAtlasClient();
