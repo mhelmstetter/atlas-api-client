@@ -322,6 +322,41 @@ public class PatternVisualReporter {
      */
     private JFreeChart createChart(TimeSeriesCollection dataset, String metricName, 
             boolean isCpuMetric, boolean isMemoryMetric, boolean isBytesMetric) {
+        
+        // Debug dataset info
+        logger.info("Creating chart for {}: {} series with {} total data points", 
+            metricName, 
+            dataset.getSeriesCount(),
+            dataset.getSeries().stream()
+                .mapToInt(s -> ((TimeSeries)s).getItemCount())
+                .sum());
+        
+        // Get time range from dataset
+        if (dataset.getSeriesCount() > 0) {
+            TimeSeries firstSeries = dataset.getSeries(0);
+            if (firstSeries.getItemCount() > 0) {
+                Date minDate = null;
+                Date maxDate = null;
+                
+                for (int i = 0; i < dataset.getSeriesCount(); i++) {
+                    TimeSeries series = dataset.getSeries(i);
+                    if (series.getItemCount() > 0) {
+                        Date seriesMinDate = ((Millisecond)series.getDataItem(0).getPeriod()).getStart();
+                        Date seriesMaxDate = ((Millisecond)series.getDataItem(series.getItemCount()-1).getPeriod()).getStart();
+                        
+                        if (minDate == null || seriesMinDate.before(minDate)) {
+                            minDate = seriesMinDate;
+                        }
+                        if (maxDate == null || seriesMaxDate.after(maxDate)) {
+                            maxDate = seriesMaxDate;
+                        }
+                    }
+                }
+                
+                logger.info("Chart data range: {} to {}", minDate, maxDate);
+            }
+        }
+        
         JFreeChart chart = ChartFactory.createTimeSeriesChart(
                 metricName,          // chart title
                 null,                // x-axis label (none for compactness)
@@ -389,6 +424,17 @@ public class PatternVisualReporter {
                 Date timestamp = Date.from(Instant.parse((String) dataPoint.get("timestamp")));
                 series.add(new Millisecond(timestamp), value);
             }
+        }
+        
+        // Add debug to show what's going into the chart
+        if (series.getItemCount() > 0) {
+            Date firstDate = ((Millisecond)series.getDataItem(0).getPeriod()).getStart();
+            Date lastDate = ((Millisecond)series.getDataItem(series.getItemCount()-1).getPeriod()).getStart();
+            logger.info("Chart series data: {} points from {} to {} ({})",
+                series.getItemCount(),
+                firstDate,
+                lastDate,
+                seriesName);
         }
         
         // Add to dataset if it has data
@@ -533,6 +579,16 @@ public class PatternVisualReporter {
             dateAxis.setLabelPaint(textColor);
             dateAxis.setLowerMargin(0.01); // Very small left margin
             dateAxis.setUpperMargin(0.01); // Very small right margin
+            
+            // After configuration, check and log the actual range
+            Date minDate = new Date(dateAxis.getMinimumDate().getTime());
+            Date maxDate = new Date(dateAxis.getMaximumDate().getTime());
+            logger.info("Date axis configured with range: {} to {}", minDate, maxDate);
+            
+            // Calculate days between
+            long diffInMillies = Math.abs(maxDate.getTime() - minDate.getTime());
+            float diffInDays = diffInMillies / (24 * 60 * 60 * 1000f);
+            logger.info("Date range spans approximately {:.1f} days", diffInDays);
         }
         
         /**
