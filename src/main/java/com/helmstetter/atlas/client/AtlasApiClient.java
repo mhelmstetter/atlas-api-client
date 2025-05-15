@@ -475,108 +475,6 @@ public class AtlasApiClient {
     }
     
     /**
-     * Get process measurements with optimized pagination
-     * This version allows customizing itemsPerPage and adds improved logging
-     */
-    public List<Map<String, Object>> getProcessMeasurements(
-            String projectId, String hostname, int port, 
-            List<String> metrics, String granularity, String period, int itemsPerPage) {
-        
-        List<Map<String, Object>> allMeasurements = new ArrayList<>();
-        String metricParams = formatMetricsParam(metrics);
-        String processId = hostname + ":" + port;
-        
-        // Start with page 1
-        int pageNum = 1;
-        boolean hasMorePages = true;
-        
-        // Log the parameter details
-        logger.info("Fetching measurements for {}:{} with {} metrics, period={}, granularity={}, itemsPerPage={}",
-                hostname, port, metrics.size(), period, granularity, itemsPerPage);
-        
-        // Track total data points retrieved
-        int totalDataPoints = 0;
-        
-        while (hasMorePages) {
-            String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
-                    + "/measurements?granularity=" + granularity 
-                    + "&period=" + period 
-                    + "&pageNum=" + pageNum
-                    + "&itemsPerPage=" + itemsPerPage
-                    + "&" + metricParams;
-
-            try {
-                logger.debug("Calling process measurements URL (page {}): {}", pageNum, url);
-                String responseBody = getResponseBody(url, API_VERSION_V2, projectId);
-                Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
-                
-                // Get measurements from this page
-                List<Map<String, Object>> pageMeasurements = (List<Map<String, Object>>) responseMap.get("measurements");
-                
-                if (pageMeasurements != null && !pageMeasurements.isEmpty()) {
-                    int pageDataPoints = 0;
-                    
-                    // Count data points on this page
-                    for (Map<String, Object> measurement : pageMeasurements) {
-                        List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
-                        if (dataPoints != null) {
-                            pageDataPoints += dataPoints.size();
-                        }
-                    }
-                    totalDataPoints += pageDataPoints;
-                    
-                    logger.debug("Retrieved page {} with {} measurements and {} data points", 
-                            pageNum, pageMeasurements.size(), pageDataPoints);
-                    
-                    if (allMeasurements.isEmpty()) {
-                        // First page - just add all measurements
-                        allMeasurements.addAll(pageMeasurements);
-                    } else {
-                        // Subsequent pages - need to merge data points with matching metrics
-                        mergeDataPoints(allMeasurements, pageMeasurements);
-                    }
-                    
-                    // Check if there are more pages - look for pagination metadata
-                    Object totalCount = responseMap.get("totalCount");
-                    Object resultsPerPage = responseMap.get("resultsPerPage");
-                    
-                    if (totalCount instanceof Integer && resultsPerPage instanceof Integer) {
-                        int total = (Integer) totalCount;
-                        int perPage = (Integer) resultsPerPage;
-                        int totalPages = (perPage > 0) ? (int) Math.ceil((double) total / perPage) : 0;
-                        
-                        hasMorePages = pageNum < totalPages;
-                        logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
-                                pageNum, totalPages, hasMorePages);
-                    } else {
-                        // If we can't determine pagination info, check if the page had data
-                        hasMorePages = !pageMeasurements.isEmpty();
-                        logger.debug("No pagination metadata, inferring hasMorePages: {}", hasMorePages);
-                    }
-                } else {
-                    // No measurements on this page, we're done
-                    hasMorePages = false;
-                    logger.debug("No data on page {}, ending pagination", pageNum);
-                }
-                
-                // Move to next page
-                pageNum++;
-                
-            } catch (Exception e) {
-                logger.error("Failed to get measurements for {}:{} (page {}): {}", 
-                        hostname, port, pageNum, e.getMessage());
-                throw new AtlasApiException("Failed to get measurements", e);
-            }
-        }
-        
-        // Log the total data retrieved
-        logger.info("Retrieved {} measurements with {} total data points for {}:{} (took {} pages)",
-                allMeasurements.size(), totalDataPoints, hostname, port, pageNum - 1);
-        
-        return allMeasurements;
-    }
-    
-    /**
      * Get disk-level measurements for a specific partition with optimized pagination
      */
     public List<Map<String, Object>> getDiskMeasurements(
@@ -664,23 +562,34 @@ public class AtlasApiClient {
                         mergeDataPoints(allMeasurements, pageMeasurements);
                     }
                     
-                    // Check if there are more pages - look for pagination metadata
-                    // This depends on the exact API response structure
+                 // Check if there are more pages - look for pagination metadata
                     Object totalCount = responseMap.get("totalCount");
                     Object resultsPerPage = responseMap.get("resultsPerPage");
-                    
+
                     if (totalCount instanceof Integer && resultsPerPage instanceof Integer) {
                         int total = (Integer) totalCount;
                         int perPage = (Integer) resultsPerPage;
-                        int totalPages = (int) Math.ceil((double) total / perPage);
+                        int totalPages = (perPage > 0) ? (int) Math.ceil((double) total / perPage) : 0;
                         
                         hasMorePages = pageNum < totalPages;
                         logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
                                 pageNum, totalPages, hasMorePages);
                     } else {
-                        // If we can't determine pagination info, check if the page had data
-                        hasMorePages = !pageMeasurements.isEmpty();
-                        logger.debug("No pagination metadata, inferring hasMorePages: {}", hasMorePages);
+                        // If we can't determine pagination info, check if the page had FULL data
+                        int currentPageSize = 0;
+                        for (Map<String, Object> measurement : pageMeasurements) {
+                            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                            if (dataPoints != null) {
+                                currentPageSize += dataPoints.size();
+                            }
+                        }
+                        
+                        // If we got less than the max items per page, assume it's the last page
+                        // Or if we've fetched too many pages already, stop (as a safety measure)
+                        hasMorePages = !pageMeasurements.isEmpty() && currentPageSize >= 500 && pageNum < 30;
+                        
+                        logger.debug("No pagination metadata. Current page has {} measurements with {} data points. Inferring hasMorePages: {}", 
+                                pageMeasurements.size(), currentPageSize, hasMorePages);
                     }
                 } else {
                     // No measurements on this page, we're done

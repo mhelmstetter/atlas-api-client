@@ -27,6 +27,8 @@
         <appender-ref ref="CONSOLE" /> <!-- Also log to console if desired -->
     </logger>
     
+    <logger name="com.helmstetter.atlas.client" level="DEBUG"/>
+    
     <!-- Root logger -->
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
