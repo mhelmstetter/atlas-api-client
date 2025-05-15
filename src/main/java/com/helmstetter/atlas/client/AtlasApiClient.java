@@ -17,6 +17,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -69,6 +70,32 @@ public class AtlasApiClient {
     }
     
     /**
+     * Generic method to parse API responses into maps
+     */
+    private <T> T parseResponse(String responseBody, Class<T> responseType) {
+        try {
+            return objectMapper.readValue(responseBody, responseType);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to parse JSON response: {}", e.getMessage());
+            throw new AtlasApiException("Failed to parse JSON response", e);
+        }
+    }
+    
+    /**
+     * Generic method to extract results from API responses
+     */
+    @SuppressWarnings("unchecked")
+    private <T> List<T> extractResults(String responseBody) {
+        try {
+            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
+            return (List<T>) responseMap.get("results");
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to extract results from JSON response: {}", e.getMessage());
+            throw new AtlasApiException("Failed to extract results from JSON response", e);
+        }
+    }
+    
+    /**
      * Get all projects matching the specified names
      * 
      * @param includeProjectNames Set of project names to include
@@ -79,17 +106,16 @@ public class AtlasApiClient {
         String responseBody = getResponseBody(url, API_VERSION_V2);
 
         try {
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-            List<Map<String, Object>> results = (List<Map<String, Object>>) responseMap.get("results");
+            List<Map<String, Object>> projects = extractResults(responseBody);
             
-            return results.stream()
+            return projects.stream()
                     .filter(p -> includeProjectNames.contains(p.get("name")))
                     .collect(Collectors.toMap(
                             p -> (String) p.get("name"), 
                             p -> (String) p.get("id")));
         } catch (Exception e) {
-            logger.error("Failed to parse projects JSON response: {}", e.getMessage());
-            throw new RuntimeException("Failed to parse JSON response", e);
+            logger.error("Failed to retrieve projects: {}", e.getMessage());
+            throw new AtlasApiException("Failed to retrieve projects", e);
         }
     }
     
@@ -99,14 +125,7 @@ public class AtlasApiClient {
     public List<Map<String, Object>> getProcesses(String projectId) {
         String url = BASE_URL_V2 + "/groups/" + projectId + "/processes";
         String responseBody = getResponseBody(url, API_VERSION_V2);
-
-        try {
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-            return (List<Map<String, Object>>) responseMap.get("results");
-        } catch (Exception e) {
-            logger.error("Failed to parse processes JSON response: {}", e.getMessage());
-            throw new RuntimeException("Failed to parse JSON response", e);
-        }
+        return extractResults(responseBody);
     }
     
     /**
@@ -117,14 +136,7 @@ public class AtlasApiClient {
         
         logger.info("Fetching clusters for project {}", projectId);
         String responseBody = getResponseBody(url, API_VERSION_V2);
-
-        try {
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-            return (List<Map<String, Object>>) responseMap.get("results");
-        } catch (Exception e) {
-            logger.error("Failed to retrieve clusters for project {}: {}", projectId, e.getMessage());
-            throw new RuntimeException("Failed to parse JSON response", e);
-        }
+        return extractResults(responseBody);
     }
     
     /**
@@ -136,14 +148,7 @@ public class AtlasApiClient {
         
         logger.debug("Fetching disk partitions for process {} in project {}", processId, projectId);
         String responseBody = getResponseBody(url, API_VERSION_V1);
-
-        try {
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-            return (List<Map<String, Object>>) responseMap.get("results");
-        } catch (Exception e) {
-            logger.error("Failed to retrieve disk partitions for process {}: {}", processId, e.getMessage());
-            throw new RuntimeException("Failed to parse JSON response", e);
-        }
+        return extractResults(responseBody);
     }
     
     /**
@@ -153,23 +158,20 @@ public class AtlasApiClient {
             String projectId, String hostname, int port, 
             List<String> metrics, String granularity, String period) {
         
-        // Build metrics parameter for URL
-        String metricParams = metrics.stream()
-                .map(m -> "m=" + m)
-                .collect(Collectors.joining("&"));
+        String metricParams = formatMetricsParam(metrics);
+        String processId = hostname + ":" + port;
         
-        String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + hostname + ":" + port
+        String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
                 + "/measurements?granularity=" + granularity + "&period=" + period + "&" + metricParams;
 
         try {
             logger.debug("Calling process measurements URL: {}", url);
             String responseBody = getResponseBody(url, API_VERSION_V2);
-    
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
+            Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
             return (List<Map<String, Object>>) responseMap.get("measurements");
         } catch (Exception e) {
             logger.error("Failed to get measurements for {}:{}: {}", hostname, port, e.getMessage());
-            throw new RuntimeException("Failed to get measurements", e);
+            throw new AtlasApiException("Failed to get measurements", e);
         }
     }
     
@@ -181,13 +183,8 @@ public class AtlasApiClient {
             List<String> metrics, String granularity, String period) {
         
         String processId = hostname + ":" + port;
+        String metricParams = formatMetricsParam(metrics);
         
-        // Build metrics parameter for URL
-        String metricParams = metrics.stream()
-                .map(m -> "m=" + m)
-                .collect(Collectors.joining("&"));
-        
-        // Build the URL for disk measurements
         String url = BASE_URL_V1 + "/groups/" + projectId + "/processes/" + processId + 
                 "/disks/" + partitionName + "/measurements?granularity=" + granularity + 
                 "&period=" + period + "&" + metricParams;
@@ -196,13 +193,22 @@ public class AtlasApiClient {
             logger.debug("Calling disk measurements URL for partition {}: {}", partitionName, url);
             String responseBody = getResponseBody(url, API_VERSION_V1);
             
-            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
+            Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
             return (List<Map<String, Object>>) responseMap.get("measurements");
         } catch (Exception e) {
             logger.error("Error getting disk measurements for {}:{} partition {}: {}", 
                     hostname, port, partitionName, e.getMessage());
-            throw new RuntimeException("Failed to get disk measurements", e);
+            throw new AtlasApiException("Failed to get disk measurements", e);
         }
+    }
+    
+    /**
+     * Format metrics for URL parameter
+     */
+    private String formatMetricsParam(List<String> metrics) {
+        return metrics.stream()
+                .map(m -> "m=" + m)
+                .collect(Collectors.joining("&"));
     }
     
     /**
@@ -210,5 +216,20 @@ public class AtlasApiClient {
      */
     public ObjectMapper getObjectMapper() {
         return objectMapper;
+    }
+    
+    /**
+     * Custom exception for API errors
+     */
+    public static class AtlasApiException extends RuntimeException {
+        private static final long serialVersionUID = 5970961510846497756L;
+
+		public AtlasApiException(String message) {
+            super(message);
+        }
+        
+        public AtlasApiException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }
