@@ -81,7 +81,7 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         // Initialize the API client
-        this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey);
+        this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, 0);
         
         // Initialize the metrics processor with pattern analysis option
         this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
