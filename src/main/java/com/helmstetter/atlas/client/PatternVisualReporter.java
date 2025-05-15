@@ -9,10 +9,13 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -53,7 +56,12 @@ public class PatternVisualReporter {
     // Components
     private final SvgProcessor svgProcessor;
     private final HtmlIndexGenerator htmlGenerator;
-
+    
+    // Global metrics scaling maps to maintain consistent scales across projects
+    private final Map<String, Double> metricMaxValues = new HashMap<>();
+    private final Map<String, Double> metricMinValues = new HashMap<>();
+    private final boolean useConsistentScaling = true; // Flag to enable/disable consistent scaling
+    
     /**
      * Constructor to initialize the reporter with default chart dimensions and light mode
      */
@@ -92,6 +100,64 @@ public class PatternVisualReporter {
     }
     
     /**
+     * Calculate global min/max values for each metric across all projects
+     * This should be run before generating charts to establish consistent scales
+     */
+    public void calculateGlobalScales(Map<String, ProjectMetricsResult> projectResults) {
+        // Reset maps
+        metricMaxValues.clear();
+        metricMinValues.clear();
+        
+        // Iterate through all project results
+        for (ProjectMetricsResult result : projectResults.values()) {
+            for (String metric : result.getMetrics()) {
+                if (result.hasMetricData(metric)) {
+                    // Get values for this project
+                    Double maxValue = result.getMaxValue(metric);
+                    
+                    // Update global max if higher
+                    if (maxValue != null && maxValue > Double.MIN_VALUE) {
+                        double currentMax = metricMaxValues.getOrDefault(metric, Double.MIN_VALUE);
+                        if (maxValue > currentMax) {
+                            metricMaxValues.put(metric, maxValue);
+                        }
+                    }
+                    
+                    // For now, min value is set to 0 for most metrics
+                    // We could change this if we need negative values
+                    metricMinValues.putIfAbsent(metric, 0.0);
+                }
+            }
+        }
+        
+        // Add padding to max values to prevent truncation (20% extra headroom)
+        for (String metric : metricMaxValues.keySet()) {
+            double currentMax = metricMaxValues.get(metric);
+            metricMaxValues.put(metric, currentMax * 1.2);  // 20% extra headroom
+        }
+        
+        // Log the calculated global scales
+        logger.info("Calculated global metric scales:");
+        for (String metric : metricMaxValues.keySet()) {
+            logger.info("  {} scale: {} to {}", metric, 
+                    MetricsUtils.formatValue(metricMinValues.get(metric)), 
+                    MetricsUtils.formatValue(metricMaxValues.get(metric)));
+        }
+    }
+    
+    /**
+     * Create HTML index for all projects
+     */
+    public void createHtmlIndex(Map<String, ProjectMetricsResult> projectResults) {
+        // Calculate global scales before generating any charts
+        if (useConsistentScaling) {
+            calculateGlobalScales(projectResults);
+        }
+        
+        htmlGenerator.generate(projectResults);
+    }
+    
+    /**
      * Generate a combined chart for a specific metric across all hosts in a project
      */
     public void generateCombinedMetricChart(
@@ -111,11 +177,15 @@ public class PatternVisualReporter {
             
             // Only create chart if we have data
             if (dataset.getSeriesCount() > 0) {
-                // Determine if this is a CPU metric
+                // Determine if this is a CPU metric or needs special handling
                 boolean isCpuMetric = metricName.equals("SYSTEM_NORMALIZED_CPU_USER");
+                boolean isMemoryMetric = metricName.equals("SYSTEM_MEMORY_USED") || 
+                                         metricName.equals("SYSTEM_MEMORY_FREE");
+                boolean isBytesMetric = metricName.startsWith("CACHE_BYTES") || 
+                                        metricName.contains("BYTES");
                 
                 // Create chart
-                JFreeChart chart = createChart(dataset, metricName, isCpuMetric);
+                JFreeChart chart = createChart(dataset, metricName, isCpuMetric, isMemoryMetric, isBytesMetric);
                 
                 // Save chart to SVG file
                 String filename = String.format("%s/%s_%s_combined.svg", 
@@ -250,7 +320,8 @@ public class PatternVisualReporter {
     /**
      * Create a chart with the specified dataset
      */
-    private JFreeChart createChart(TimeSeriesCollection dataset, String metricName, boolean isCpuMetric) {
+    private JFreeChart createChart(TimeSeriesCollection dataset, String metricName, 
+            boolean isCpuMetric, boolean isMemoryMetric, boolean isBytesMetric) {
         JFreeChart chart = ChartFactory.createTimeSeriesChart(
                 metricName,          // chart title
                 null,                // x-axis label (none for compactness)
@@ -261,8 +332,8 @@ public class PatternVisualReporter {
                 false                // no URLs
         );
         
-        // Apply chart theme
-        chartTheme.applyTo(chart, isCpuMetric);
+        // Apply chart theme with specific metric type
+        chartTheme.applyTo(chart, metricName, isCpuMetric, isMemoryMetric, isBytesMetric);
         
         return chart;
     }
@@ -345,13 +416,6 @@ public class PatternVisualReporter {
     }
     
     /**
-     * Create HTML index with all projects tiled in a grid layout
-     */
-    public void createHtmlIndex(Map<String, ProjectMetricsResult> projectResults) {
-        htmlGenerator.generate(projectResults);
-    }
-    
-    /**
      * Chart theme manager for consistent styling
      */
     private class ChartTheme {
@@ -393,7 +457,8 @@ public class PatternVisualReporter {
         /**
          * Apply theme to a chart
          */
-        public void applyTo(JFreeChart chart, boolean isCpuMetric) {
+        public void applyTo(JFreeChart chart, String metricName, boolean isCpuMetric, 
+                boolean isMemoryMetric, boolean isBytesMetric) {
             // Completely eliminate chart padding
             chart.setPadding(new RectangleInsets(0, 0, 0, 0));
             
@@ -409,14 +474,15 @@ public class PatternVisualReporter {
             // Get the plot for customization
             XYPlot plot = chart.getXYPlot();
             
-            // Configure plot
-            configureXYPlot(plot, isCpuMetric);
+            // Configure plot with metric-specific settings
+            configureXYPlot(plot, metricName, isCpuMetric, isMemoryMetric, isBytesMetric);
         }
         
         /**
-         * Configure XYPlot settings
+         * Configure XYPlot settings with metric-specific customizations
          */
-        private void configureXYPlot(XYPlot plot, boolean isCpuMetric) {
+        private void configureXYPlot(XYPlot plot, String metricName, boolean isCpuMetric, 
+                boolean isMemoryMetric, boolean isBytesMetric) {
             // Minimize plot insets
             plot.setInsets(new RectangleInsets(1, 1, 1, 1));
             
@@ -435,8 +501,9 @@ public class PatternVisualReporter {
             // Format date axis
             configureDateAxis((DateAxis) plot.getDomainAxis());
             
-            // Format value axis
-            configureValueAxis((NumberAxis) plot.getRangeAxis(), isCpuMetric);
+            // Format value axis with metric-specific settings
+            configureValueAxis((NumberAxis) plot.getRangeAxis(), metricName, 
+                    isCpuMetric, isMemoryMetric, isBytesMetric);
             
             // Reduce space between plot area and axes
             plot.setAxisOffset(new RectangleInsets(1, 1, 1, 1));
@@ -469,24 +536,104 @@ public class PatternVisualReporter {
         }
         
         /**
-         * Configure the value (range) axis
+         * Configure the value (range) axis with metric-specific customizations
          */
-        private void configureValueAxis(NumberAxis valueAxis, boolean isCpuMetric) {
+        private void configureValueAxis(NumberAxis valueAxis, String metricName, 
+                boolean isCpuMetric, boolean isMemoryMetric, boolean isBytesMetric) {
+            // Basic styling
             valueAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
             valueAxis.setTickLabelPaint(textColor);
             valueAxis.setLabelPaint(textColor);
-            valueAxis.setLowerMargin(0.01); // Very small bottom margin
-            valueAxis.setUpperMargin(0.01); // Very small top margin
             
-            // CRITICAL: Set fixed scale for CPU metrics
-            if (isCpuMetric) {
+            // Increased margins to prevent truncation
+            valueAxis.setLowerMargin(0.05); // Increased bottom margin (was 0.01)
+            valueAxis.setUpperMargin(0.10); // Increased top margin (was 0.01)
+            
+            // Custom number formatter to avoid scientific notation
+            NumberFormat formatter;
+            
+            if (isBytesMetric) {
+                // For byte metrics, use KB/MB/GB suffix formatter
+                valueAxis.setNumberFormatOverride(new ByteUnitFormatter());
+            } else if (isMemoryMetric) {
+                // For memory metrics, use GB with 2 decimal places
+                formatter = new DecimalFormat("#,##0.##");
+                valueAxis.setNumberFormatOverride(formatter);
+                valueAxis.setLabel("GB");
+            } else {
+                // Default formatter with no scientific notation
+                formatter = new DecimalFormat("#,###.##");
+                valueAxis.setNumberFormatOverride(formatter);
+            }
+            
+            // Apply consistent scale across projects if enabled
+            if (useConsistentScaling && metricMaxValues.containsKey(metricName)) {
+                valueAxis.setAutoRange(false);
+                double min = metricMinValues.getOrDefault(metricName, 0.0);
+                double max = metricMaxValues.get(metricName);
+                
+                // Use fixed scale for CPU metrics
+                if (isCpuMetric) {
+                    valueAxis.setRange(0.0, 100.0);
+                    logger.info("Set fixed 0-100 scale for CPU chart");
+                } else {
+                    valueAxis.setRange(min, max);
+                    logger.info("Set consistent scale for {} ({} to {})", 
+                            metricName, min, max);
+                }
+            } else if (isCpuMetric) {
+                // Always use fixed scale for CPU metrics regardless of global scaling
                 valueAxis.setAutoRange(false);
                 valueAxis.setRange(0.0, 100.0);
                 logger.info("Set fixed 0-100 scale for CPU chart");
             } else {
+                // Auto-range with zero inclusion based on metric type
                 valueAxis.setAutoRange(true);
-                valueAxis.setAutoRangeIncludesZero(false);
+                
+                // Most metrics should include zero on the scale
+                valueAxis.setAutoRangeIncludesZero(true);
             }
+        }
+    }
+    
+    /**
+     * Custom formatter for byte values to use KB/MB/GB suffixes
+     */
+    private static class ByteUnitFormatter extends NumberFormat {
+        private static final long serialVersionUID = 1L;
+        private static final String[] UNITS = {"B", "KB", "MB", "GB", "TB"};
+        private final DecimalFormat df = new DecimalFormat("#,##0.##");
+
+        @Override
+        public StringBuffer format(double number, StringBuffer result, java.text.FieldPosition pos) {
+            if (number == 0) {
+                return result.append("0 B");
+            }
+            
+            // Determine the unit to use
+            int unitIndex = (int) Math.floor(Math.log10(Math.abs(number)) / 3);
+            unitIndex = Math.min(unitIndex, UNITS.length - 1);
+            unitIndex = Math.max(unitIndex, 0);
+            
+            // Calculate the value in the selected unit
+            double value = number / Math.pow(1000, unitIndex);
+            
+            // Format the value
+            df.format(value, result, pos);
+            result.append(" ").append(UNITS[unitIndex]);
+            
+            return result;
+        }
+
+        @Override
+        public StringBuffer format(long number, StringBuffer result, java.text.FieldPosition pos) {
+            return format((double) number, result, pos);
+        }
+
+        @Override
+        public Number parse(String source, java.text.ParsePosition pos) {
+            // This method is not implemented as we only use this formatter for display
+            return null;
         }
     }
 }
