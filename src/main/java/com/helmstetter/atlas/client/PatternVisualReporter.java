@@ -9,9 +9,13 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
 
@@ -39,16 +43,30 @@ public class PatternVisualReporter {
     private final AtlasApiClient apiClient;
     private final String outputDirectory;
     
-    // Constants for chart sizing
-    private static final int CHART_WIDTH = 600;  
-    private static final int CHART_HEIGHT = 300;
+    // Chart sizing with default values
+    private final int chartWidth;  
+    private final int chartHeight;
     
     /**
-     * Constructor to initialize the reporter
+     * Constructor to initialize the reporter with default chart dimensions
      */
     public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory) {
+        this(apiClient, outputDirectory, 600, 300);
+    }
+    
+    /**
+     * Constructor to initialize the reporter with custom chart dimensions
+     * 
+     * @param apiClient The Atlas API client
+     * @param outputDirectory The directory where charts will be saved
+     * @param chartWidth The width of the generated charts in pixels
+     * @param chartHeight The height of the generated charts in pixels
+     */
+    public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory, int chartWidth, int chartHeight) {
         this.apiClient = apiClient;
         this.outputDirectory = outputDirectory;
+        this.chartWidth = chartWidth;
+        this.chartHeight = chartHeight;
         
         // Create output directory if it doesn't exist
         File dir = new File(outputDirectory);
@@ -205,7 +223,7 @@ public class PatternVisualReporter {
                 
                 // Write chart to file
                 File chartFile = new File(filename);
-                ImageIO.write(chart.createBufferedImage(CHART_WIDTH, CHART_HEIGHT), "png", chartFile);
+                ImageIO.write(chart.createBufferedImage(chartWidth, chartHeight), "png", chartFile);
                 
                 // After creating the image, verify the scale was actually applied
                 if (isCpuMetric) {
@@ -293,7 +311,60 @@ public class PatternVisualReporter {
     }
     
     /**
+     * Comparator for natural alphanumeric sorting of project names
+     * Sorts first by non-numeric characters, then by numeric portions as numbers
+     */
+    private static class AlphaNumericComparator implements Comparator<String> {
+        private static final Pattern PATTERN = Pattern.compile("(\\D*)(\\d*)");
+        
+        @Override
+        public int compare(String s1, String s2) {
+            Matcher m1 = PATTERN.matcher(s1);
+            Matcher m2 = PATTERN.matcher(s2);
+            
+            // Continue matching and comparing until the strings are different
+            while (m1.find() && m2.find()) {
+                // Compare non-numeric portions case-insensitively
+                String nonDigit1 = m1.group(1);
+                String nonDigit2 = m2.group(1);
+                int nonDigitCompare = nonDigit1.compareToIgnoreCase(nonDigit2);
+                if (nonDigitCompare != 0) {
+                    return nonDigitCompare;
+                }
+                
+                // Compare numeric portions as numbers (not as strings)
+                String digit1 = m1.group(2);
+                String digit2 = m2.group(2);
+                if (!digit1.isEmpty() && !digit2.isEmpty()) {
+                    int num1 = Integer.parseInt(digit1);
+                    int num2 = Integer.parseInt(digit2);
+                    if (num1 != num2) {
+                        return num1 - num2;
+                    }
+                } else if (!digit1.isEmpty()) {
+                    return 1; // s1 has a number, s2 doesn't
+                } else if (!digit2.isEmpty()) {
+                    return -1; // s2 has a number, s1 doesn't
+                }
+                
+                // If we've matched the entire strings, we're done
+                if (m1.end() == s1.length() && m2.end() == s2.length()) {
+                    return 0;
+                }
+                
+                // Reset the matchers to start from where we left off
+                m1 = PATTERN.matcher(s1).region(m1.end(), s1.length());
+                m2 = PATTERN.matcher(s2).region(m2.end(), s2.length());
+            }
+            
+            // If one string is done and the other isn't, the shorter comes first
+            return s1.length() - s2.length();
+        }
+    }
+    
+    /**
      * Create HTML index with all projects tiled in a grid layout
+     * Projects will be sorted by name with natural alphanumeric sorting
      */
     public void createHtmlIndex(Map<String, ProjectMetricsResult> projectResults) {
         String indexPath = outputDirectory + "/index.html";
@@ -307,12 +378,10 @@ public class PatternVisualReporter {
             writer.write("    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }\n");
             writer.write("    h1 { color: #333; font-size: 22px; margin: 15px 0; }\n");
             writer.write("    h2 { color: #666; font-size: 14px; margin: 5px 0; }\n");
-            writer.write("    .all-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }\n");
+            writer.write("    .all-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }\n");
             writer.write("    .chart-cell { background-color: #fff; padding: 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n");
             writer.write("    .chart-img { width: 100%; height: auto; display: block; }\n");
             writer.write("    .timestamp { color: #999; font-size: 12px; margin-bottom: 20px; }\n");
-            writer.write("    @media (max-width: 900px) { .all-charts { grid-template-columns: repeat(2, 1fr); } }\n");
-            writer.write("    @media (max-width: 500px) { .all-charts { grid-template-columns: 1fr; } }\n");
             writer.write("  </style>\n");
             writer.write("</head>\n");
             writer.write("<body>\n");
@@ -328,8 +397,13 @@ public class PatternVisualReporter {
             // Collect all chart files from all projects
             boolean hasAnyCharts = false;
             
+            // Sort projects by name using the AlphaNumericComparator
+            List<ProjectMetricsResult> sortedProjects = projectResults.values().stream()
+                .sorted(Comparator.comparing(ProjectMetricsResult::getProjectName, new AlphaNumericComparator()))
+                .collect(Collectors.toList());
+            
             // For each project, collect and display charts
-            for (ProjectMetricsResult projectResult : projectResults.values()) {
+            for (ProjectMetricsResult projectResult : sortedProjects) {
                 String projectName = projectResult.getProjectName();
                 String safeProjectName = projectName.replace(' ', '_');
                 
@@ -342,7 +416,7 @@ public class PatternVisualReporter {
                         
                         writer.write("    <div class='chart-cell'>\n");
                         writer.write("      <h2>" + projectName + "</h2>\n");
-                        writer.write("      <img src='" + combinedChartFile + "' alt='" + metric + "' class='chart-img'>\n");
+                        writer.write("      <img src='" + combinedChartFile + "' alt='" + metric + " for " + projectName + "' class='chart-img'>\n");
                         writer.write("    </div>\n");
                     }
                 }
