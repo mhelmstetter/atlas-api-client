@@ -1,13 +1,18 @@
 package com.helmstetter.atlas.client;
 
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Utility class for metrics processing operations
+ * Enhanced with better formatting for byte values and consistent unit display
  */
 public class MetricsUtils {
+    
+    // Formatter for numeric values
+    private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,##0.##");
     
     /**
      * Extract values from a list of data points
@@ -75,7 +80,13 @@ public class MetricsUtils {
                 return " GB";
             case "DISK_PARTITION_IOPS_TOTAL":
                 return " IOPS";
+            case "CACHE_BYTES_READ_INTO":
+            case "CACHE_BYTES_WRITTEN_FROM":
+                return " bytes";
             default:
+                if (metric.contains("BYTES")) {
+                    return " bytes";
+                }
                 return "";
         }
     }
@@ -84,16 +95,49 @@ public class MetricsUtils {
      * Format a double value for display (round to 2 decimal places)
      */
     public static String formatValue(double value) {
-        return String.format("%.2f", value);
+        return DECIMAL_FORMAT.format(value);
     }
     
     /**
-     * Convert memory values from MB to GB if needed
+     * Convert memory values from MB to GB if needed, and handle other unit conversions
      */
     public static double convertToDisplayUnits(String metric, double value) {
         if (metric.equals("SYSTEM_MEMORY_USED") || metric.equals("SYSTEM_MEMORY_FREE")) {
             return value / 1024.0; // Convert MB to GB
         }
         return value;
+    }
+    
+    /**
+     * Format byte values with appropriate units (B, KB, MB, GB, TB)
+     */
+    public static String formatByteValue(double bytes) {
+        if (bytes < 1024) {
+            return formatValue(bytes) + " B";
+        } else if (bytes < 1024 * 1024) {
+            return formatValue(bytes / 1024) + " KB";
+        } else if (bytes < 1024 * 1024 * 1024) {
+            return formatValue(bytes / (1024 * 1024)) + " MB";
+        } else if (bytes < 1024L * 1024L * 1024L * 1024L) {
+            return formatValue(bytes / (1024 * 1024 * 1024)) + " GB";
+        } else {
+            return formatValue(bytes / (1024L * 1024L * 1024L * 1024L)) + " TB";
+        }
+    }
+    
+    /**
+     * Format a metric value with the appropriate unit and formatting
+     */
+    public static String formatMetricValue(String metric, double value) {
+        // Special handling for byte metrics
+        if (metric.contains("BYTES")) {
+            return formatByteValue(value);
+        }
+        
+        // Convert to appropriate display units
+        double displayValue = convertToDisplayUnits(metric, value);
+        
+        // Format the value and add unit
+        return formatValue(displayValue) + getMetricUnit(metric);
     }
 }

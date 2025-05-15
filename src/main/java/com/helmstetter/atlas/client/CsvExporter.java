@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import com.helmstetter.atlas.client.PatternAnalyzer.PatternType;
 
 /**
- * Exports project metrics data to CSV format
+ * Exports project metrics data to CSV format with improved formatting
  */
 public class CsvExporter {
     
@@ -62,14 +62,12 @@ public class CsvExporter {
                     
                     // Format the values, handle missing values
                     if (avgValue != null && maxValue != null && maxValue > Double.MIN_VALUE) {
-                        // Convert MB to GB for memory metrics in the CSV
-                        if (metric.equals("SYSTEM_MEMORY_USED") || metric.equals("SYSTEM_MEMORY_FREE")) {
-                            avgValue = avgValue / 1024.0;  // Convert MB to GB
-                            maxValue = maxValue / 1024.0;  // Convert MB to GB
-                        }
+                        // Convert to display units (e.g., MB to GB for memory metrics)
+                        double displayAvg = MetricsUtils.convertToDisplayUnits(metric, avgValue);
+                        double displayMax = MetricsUtils.convertToDisplayUnits(metric, maxValue);
                         
-                        row.append(",").append(formatValue(avgValue))
-                           .append(",").append(formatValue(maxValue))
+                        row.append(",").append(MetricsUtils.formatValue(displayAvg))
+                           .append(",").append(MetricsUtils.formatValue(displayMax))
                            .append(",\"").append(maxLocation).append("\"");
                         
                         // Add pattern information if enabled
@@ -130,8 +128,8 @@ public class CsvExporter {
                            .append("\"").append(metric).append("\",")
                            .append("\"").append(location).append("\",")
                            .append("\"").append(patternResult.getPatternType().getDescription()).append("\",")
-                           .append(formatValue(patternResult.getVolatility())).append(",")
-                           .append(formatValue(patternResult.getTrendSlope())).append(",")
+                           .append(MetricsUtils.formatValue(patternResult.getVolatility())).append(",")
+                           .append(MetricsUtils.formatValue(patternResult.getTrendSlope())).append(",")
                            .append(patternResult.getSpikeCount()).append(",")
                            .append(patternResult.getSawtoothCycles()).append(",")
                            .append("\"").append(patternResult.getDetails()).append("\"");
@@ -145,12 +143,5 @@ public class CsvExporter {
         } catch (IOException e) {
             logger.error("Error writing pattern analysis CSV file: {}", e.getMessage());
         }
-    }
-    
-    /**
-     * Format a double value for display (round to 2 decimal places)
-     */
-    private String formatValue(double value) {
-        return String.format("%.2f", value);
     }
 }
