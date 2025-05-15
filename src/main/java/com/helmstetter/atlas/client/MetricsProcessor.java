@@ -14,6 +14,7 @@ import com.helmstetter.atlas.client.PatternAnalyzer.PatternType;
 
 /**
  * Processes metrics data from MongoDB Atlas API
+ * Enhanced with API usage tracking
  */
 public class MetricsProcessor {
     
@@ -25,6 +26,9 @@ public class MetricsProcessor {
     private final String granularity;
     private final PatternAnalyzer patternAnalyzer;
     private final boolean analyzePatterns;
+    
+    // Tracking for API request counts
+    private final Map<String, Integer> projectApiRequestCounts = new HashMap<>();
     
     public MetricsProcessor(AtlasApiClient apiClient, List<String> metrics, String period, String granularity) {
         this(apiClient, metrics, period, granularity, false);
@@ -53,12 +57,17 @@ public class MetricsProcessor {
         logger.info("Beginning to process {} projects with metrics: {}", 
                 projectMap.size(), String.join(", ", metrics));
         
+        // Log initial API request stats before processing projects
+        logApiStats("Before project processing");
+        
         // Create results map
         Map<String, ProjectMetricsResult> results = new HashMap<>();
         
         // Process each project
         projectMap.forEach((projectName, projectId) -> {
             try {
+                logger.info("Starting processing for project: {} ({})", projectName, projectId);
+                
                 // Create a result object for this project
                 ProjectMetricsResult projectResult = new ProjectMetricsResult(projectName, projectId);
                 
@@ -67,6 +76,9 @@ public class MetricsProcessor {
                 
                 // Process the project
                 processProject(projectResult);
+                
+                // Log API usage after each project
+                logApiStats("After processing project " + projectName);
                 
                 // Calculate final averages
                 projectResult.calculateAverages();
@@ -80,6 +92,9 @@ public class MetricsProcessor {
                 logger.error("Error processing project {}: {}", projectName, e.getMessage());
             }
         });
+        
+        // Log final API usage stats
+        logApiStats("Final statistics after all projects");
         
         return results;
     }
@@ -106,8 +121,17 @@ public class MetricsProcessor {
                     })
                     .collect(Collectors.toList());
             
+            logger.info("Filtered to {} mongod processes for project {}", 
+                    filteredProcesses.size(), projectName);
+            
+            // Estimate API requests for this project
+            int estimatedRequests = estimateApiRequests(filteredProcesses);
+            logger.info("Estimated {} API requests for project {} ({})", 
+                    estimatedRequests, projectName, projectId);
+            
             // Process each MongoDB instance
-            filteredProcesses.forEach(process -> {
+            int processedCount = 0;
+            for (Map<String, Object> process : filteredProcesses) {
                 String hostname = (String) process.get("hostname");
                 int port = (int) process.get("port");
                 
@@ -119,14 +143,69 @@ public class MetricsProcessor {
                     if (metrics.stream().anyMatch(m -> m.startsWith("DISK_"))) {
                         processDiskMetrics(projectResult, hostname, port);
                     }
+                    
+                    // Log progress periodically
+                    processedCount++;
+                    if (processedCount % 5 == 0 || processedCount == filteredProcesses.size()) {
+                        logger.info("Project {} progress: {} of {} processes complete ({}%)",
+                                projectName, processedCount, filteredProcesses.size(),
+                                Math.round((double) processedCount / filteredProcesses.size() * 100));
+                        // Check API stats periodically
+                        logApiStats("During processing of " + projectName);
+                    }
+                    
                 } catch (Exception e) {
                     // Log error but continue with other processes
                     logger.error("Error getting measurements for process {}:{} in project {}: {}", 
                             hostname, port, projectName, e.getMessage());
                 }
-            });
+            }
         } catch (Exception e) {
             logger.error("Error processing project {}: {}", projectName, e.getMessage());
+        }
+    }
+    
+    /**
+     * Estimate the number of API requests needed for a project
+     */
+    private int estimateApiRequests(List<Map<String, Object>> processes) {
+        // Base request for process list
+        int estimatedRequests = 1;
+        
+        // Each process will need at least one request for system metrics
+        estimatedRequests += processes.size();
+        
+        // If we have disk metrics, we'll need additional requests per process
+        boolean hasDiskMetrics = metrics.stream().anyMatch(m -> m.startsWith("DISK_"));
+        if (hasDiskMetrics) {
+            // Each process needs one request to get disk list
+            estimatedRequests += processes.size();
+            
+            // Roughly estimate 2 disk partitions per process on average
+            estimatedRequests += processes.size() * 2;
+        }
+        
+        // Return the estimate
+        return estimatedRequests;
+    }
+    
+    /**
+     * Log current API stats
+     */
+    private void logApiStats(String context) {
+        Map<String, Object> stats = apiClient.getApiStats();
+        int totalRequests = (int) stats.get("totalRequests");
+        long requestsInLastMinute = (long) stats.get("requestsInLastMinute");
+        
+        logger.info("API STATS ({}): {} total requests, {} in last minute", 
+                context, totalRequests, requestsInLastMinute);
+        
+        // Log project-specific counts if available
+        Map<String, Integer> projectStats = (Map<String, Integer>) stats.get("projectStats");
+        if (projectStats != null && !projectStats.isEmpty()) {
+            for (Map.Entry<String, Integer> entry : projectStats.entrySet()) {
+                logger.info("  Project {}: {} requests", entry.getKey(), entry.getValue());
+            }
         }
     }
     
