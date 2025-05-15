@@ -65,6 +65,12 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--generateHtmlIndex" }, description = "Generate HTML index of all charts", required = false, defaultValue = "true")
     private boolean generateHtmlIndex;
     
+    @Option(names = { "--chartWidth" }, description = "Width of generated charts in pixels", required = false, defaultValue = "600")
+    private int chartWidth;
+    
+    @Option(names = { "--chartHeight" }, description = "Height of generated charts in pixels", required = false, defaultValue = "300")
+    private int chartHeight;
+    
     // Service components
     private AtlasApiClient apiClient;
     private MetricsProcessor metricsProcessor;
@@ -94,7 +100,7 @@ public class MongoDBAtlasClient implements Callable<Integer> {
         
         // Generate visualizations if pattern analysis is enabled
         if (analyzePatterns) {
-            PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir);
+            PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight);
             
             // Generate combined charts for each project and metric
             for (ProjectMetricsResult projectResult : results.values()) {
@@ -110,7 +116,8 @@ public class MongoDBAtlasClient implements Callable<Integer> {
                 reporter.createHtmlIndex(results);
             }
             
-            logger.info("Visualizations generated in directory: {}", chartOutputDir);
+            logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{})", 
+                    chartOutputDir, chartWidth, chartHeight);
         }
         
         return 0;
