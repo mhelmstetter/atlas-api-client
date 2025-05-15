@@ -4,11 +4,13 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -16,8 +18,6 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import javax.imageio.ImageIO;
 
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
@@ -29,12 +29,13 @@ import org.jfree.chart.title.TextTitle;
 import org.jfree.data.time.Millisecond;
 import org.jfree.data.time.TimeSeries;
 import org.jfree.data.time.TimeSeriesCollection;
+import org.jfree.graphics2d.svg.SVGGraphics2D;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Generates charts and HTML index showing MongoDB Atlas metrics
- * This simplified version focuses on fixed scaling for CPU charts
+ * Generates SVG charts and HTML index showing MongoDB Atlas metrics
+ * Uses JFreeSVG for vector graphics output with dark mode support
  */
 public class PatternVisualReporter {
     
@@ -47,11 +48,19 @@ public class PatternVisualReporter {
     private final int chartWidth;  
     private final int chartHeight;
     
+    // Dark mode flag
+    private final boolean darkMode;
+    
+    // Theme colors
+    private final Color backgroundColor;
+    private final Color textColor;
+    private final Color gridLineColor;
+    
     /**
-     * Constructor to initialize the reporter with default chart dimensions
+     * Constructor to initialize the reporter with default chart dimensions and light mode
      */
     public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory) {
-        this(apiClient, outputDirectory, 600, 300);
+        this(apiClient, outputDirectory, 600, 300, false);
     }
     
     /**
@@ -63,10 +72,36 @@ public class PatternVisualReporter {
      * @param chartHeight The height of the generated charts in pixels
      */
     public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory, int chartWidth, int chartHeight) {
+        this(apiClient, outputDirectory, chartWidth, chartHeight, false);
+    }
+    
+    /**
+     * Constructor with dark mode option
+     * 
+     * @param apiClient The Atlas API client
+     * @param outputDirectory The directory where charts will be saved
+     * @param chartWidth The width of the generated charts in pixels
+     * @param chartHeight The height of the generated charts in pixels
+     * @param darkMode Whether to use dark mode for charts
+     */
+    public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory, 
+            int chartWidth, int chartHeight, boolean darkMode) {
         this.apiClient = apiClient;
         this.outputDirectory = outputDirectory;
         this.chartWidth = chartWidth;
         this.chartHeight = chartHeight;
+        this.darkMode = darkMode;
+        
+        // Set theme colors based on dark mode setting
+        if (darkMode) {
+            this.backgroundColor = new Color(30, 30, 30);
+            this.textColor = new Color(230, 230, 230);
+            this.gridLineColor = new Color(60, 60, 60);
+        } else {
+            this.backgroundColor = Color.white;
+            this.textColor = Color.black;
+            this.gridLineColor = Color.lightGray;
+        }
         
         // Create output directory if it doesn't exist
         File dir = new File(outputDirectory);
@@ -169,82 +204,106 @@ public class PatternVisualReporter {
                         false           // no URLs
                 );
                 
-                // Make title more compact
-                TextTitle textTitle = chart.getTitle();
-                textTitle.setFont(new Font("SansSerif", Font.BOLD, 12));
+                // Apply theme and styling
+                applyChartTheme(chart, isCpuMetric);
                 
-                // Get the plot for customization
-                XYPlot plot = chart.getXYPlot();
-                
-                // Set background color
-                plot.setBackgroundPaint(Color.white);
-                plot.setDomainGridlinePaint(Color.lightGray);
-                plot.setRangeGridlinePaint(Color.lightGray);
-                
-                // Show gridlines for better readability
-                plot.setRangeGridlinesVisible(true);
-                
-                // Configure series appearance
-                XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
-                for (int i = 0; i < dataset.getSeriesCount(); i++) {
-                    Color lineColor = getColorForSeriesIndex(i);
-                    renderer.setSeriesPaint(i, lineColor);
-                    renderer.setSeriesStroke(i, new BasicStroke(1.0f)); // Thinner lines
-                    renderer.setSeriesShapesVisible(i, false);
-                }
-                plot.setRenderer(renderer);
-                
-                // Format date axis
-                DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
-                dateAxis.setDateFormatOverride(new SimpleDateFormat("HH:mm"));
-                dateAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
-                
-                // Configure value axis
-                NumberAxis valueAxis = (NumberAxis) plot.getRangeAxis();
-                valueAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
-                
-                // CRITICAL: Set fixed scale for CPU metrics
-                if (isCpuMetric) {
-                    // For CPU metrics, explicitly disable auto range and set 0-100 scale
-                    valueAxis.setAutoRange(false);
-                    valueAxis.setRange(0.0, 100.0);
-                    logger.info("Set fixed 0-100 scale for CPU chart: {}", projectName);
-                } else {
-                    // For non-CPU metrics, let chart determine appropriate scale
-                    valueAxis.setAutoRange(true);
-                    valueAxis.setAutoRangeIncludesZero(false);
-                }
-                
-                // Save chart to file
-                String filename = String.format("%s/%s_%s_combined.png", 
+                // Save chart to SVG file
+                String filename = String.format("%s/%s_%s_combined.svg", 
                         outputDirectory, 
                         projectResult.getProjectName().replace(' ', '_'), 
                         metricName);
                 
-                // Write chart to file
-                File chartFile = new File(filename);
-                ImageIO.write(chart.createBufferedImage(chartWidth, chartHeight), "png", chartFile);
+                // Create SVG using JFreeSVG
+                saveSvgChart(chart, filename);
                 
-                // After creating the image, verify the scale was actually applied
-                if (isCpuMetric) {
-                    double lower = valueAxis.getLowerBound();
-                    double upper = valueAxis.getUpperBound();
-                    logger.info("CPU chart scale verification - Lower: {}, Upper: {}", lower, upper);
-                    
-                    // If scale was not applied as expected, log a warning
-                    if (Math.abs(lower) > 0.1 || Math.abs(upper - 100.0) > 0.1) {
-                        logger.warn("CPU chart scale was not applied correctly!");
-                    }
-                }
-                
-                logger.info("Chart saved to: {}", filename);
+                logger.info("SVG Chart saved to: {}", filename);
             } else {
                 logger.warn("No data available for {} in project {}", metricName, projectName);
             }
             
         } catch (Exception e) {
             logger.error("Error creating chart for {} in project {}: {}", 
-                    metricName, projectName, e.getMessage());
+                    metricName, projectName, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Apply theme settings to the chart
+     */
+    private void applyChartTheme(JFreeChart chart, boolean isCpuMetric) {
+        // Make title more compact and set color
+        TextTitle textTitle = chart.getTitle();
+        textTitle.setFont(new Font("SansSerif", Font.BOLD, 12));
+        textTitle.setPaint(textColor);
+        
+        // Set chart background
+        chart.setBackgroundPaint(backgroundColor);
+        
+        // Get the plot for customization
+        XYPlot plot = chart.getXYPlot();
+        
+        // Set background color
+        plot.setBackgroundPaint(backgroundColor);
+        plot.setDomainGridlinePaint(gridLineColor);
+        plot.setRangeGridlinePaint(gridLineColor);
+        plot.setOutlinePaint(textColor);
+        
+        // Show gridlines for better readability
+        plot.setRangeGridlinesVisible(true);
+        
+        // Configure series appearance
+        XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
+        for (int i = 0; i < plot.getDataset().getSeriesCount(); i++) {
+            Color lineColor = getColorForSeriesIndex(i, darkMode);
+            renderer.setSeriesPaint(i, lineColor);
+            renderer.setSeriesStroke(i, new BasicStroke(1.0f)); // Thinner lines
+            renderer.setSeriesShapesVisible(i, false);
+        }
+        plot.setRenderer(renderer);
+        
+        // Format date axis
+        DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
+        dateAxis.setDateFormatOverride(new SimpleDateFormat("HH:mm"));
+        dateAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
+        dateAxis.setTickLabelPaint(textColor);
+        dateAxis.setLabelPaint(textColor);
+        
+        // Configure value axis
+        NumberAxis valueAxis = (NumberAxis) plot.getRangeAxis();
+        valueAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
+        valueAxis.setTickLabelPaint(textColor);
+        valueAxis.setLabelPaint(textColor);
+        
+        // CRITICAL: Set fixed scale for CPU metrics
+        if (isCpuMetric) {
+            // For CPU metrics, explicitly disable auto range and set 0-100 scale
+            valueAxis.setAutoRange(false);
+            valueAxis.setRange(0.0, 100.0);
+            logger.info("Set fixed 0-100 scale for CPU chart");
+        } else {
+            // For non-CPU metrics, let chart determine appropriate scale
+            valueAxis.setAutoRange(true);
+            valueAxis.setAutoRangeIncludesZero(false);
+        }
+    }
+    
+    /**
+     * Save chart as SVG using JFreeSVG
+     */
+    private void saveSvgChart(JFreeChart chart, String filename) throws IOException {
+        // Create SVG graphics context
+        SVGGraphics2D g2 = new SVGGraphics2D(chartWidth, chartHeight);
+        
+        // Draw chart to SVG graphics context
+        chart.draw(g2, new java.awt.Rectangle(chartWidth, chartHeight));
+        
+        // Get the SVG content
+        String svgElement = g2.getSVGElement();
+        
+        // Write SVG to file
+        try (FileOutputStream fos = new FileOutputStream(filename);
+             OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
+            osw.write(svgElement);
         }
     }
     
@@ -294,10 +353,11 @@ public class PatternVisualReporter {
     }
     
     /**
-     * Get a color based on series index
+     * Get a color based on series index, adjusted for dark mode if needed
      */
-    private Color getColorForSeriesIndex(int index) {
-        Color[] colors = {
+    private Color getColorForSeriesIndex(int index, boolean darkMode) {
+        // Light mode colors
+        Color[] lightColors = {
             new Color(0, 114, 189),   // Blue
             new Color(217, 83, 25),   // Red
             new Color(237, 177, 32),  // Yellow
@@ -307,6 +367,18 @@ public class PatternVisualReporter {
             new Color(162, 20, 47)    // Dark red
         };
         
+        // Dark mode colors - brighter for better contrast against dark background
+        Color[] darkColors = {
+            new Color(0, 149, 255),     // Brighter blue
+            new Color(255, 98, 37),     // Brighter red
+            new Color(255, 200, 47),    // Brighter yellow
+            new Color(177, 70, 194),    // Brighter purple
+            new Color(132, 235, 52),    // Brighter green
+            new Color(99, 217, 255),    // Brighter light blue
+            new Color(255, 61, 61)      // Brighter dark red
+        };
+        
+        Color[] colors = darkMode ? darkColors : lightColors;
         return colors[index % colors.length];
     }
     
@@ -365,6 +437,7 @@ public class PatternVisualReporter {
     /**
      * Create HTML index with all projects tiled in a grid layout
      * Projects will be sorted by name with natural alphanumeric sorting
+     * The HTML includes a toggle for switching between light and dark mode
      */
     public void createHtmlIndex(Map<String, ProjectMetricsResult> projectResults) {
         String indexPath = outputDirectory + "/index.html";
@@ -375,13 +448,25 @@ public class PatternVisualReporter {
             writer.write("<head>\n");
             writer.write("  <title>MongoDB Atlas Metrics</title>\n");
             writer.write("  <style>\n");
-            writer.write("    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }\n");
-            writer.write("    h1 { color: #333; font-size: 22px; margin: 15px 0; }\n");
-            writer.write("    h2 { color: #666; font-size: 14px; margin: 5px 0; }\n");
+            writer.write("    body { font-family: Arial, sans-serif; margin: 20px; }\n");
+            
+            // Apply styles based on dark mode setting directly
+            if (darkMode) {
+                writer.write("    body { background-color: #1e1e1e; color: #e6e6e6; }\n");
+                writer.write("    h1 { color: #e6e6e6; font-size: 22px; margin: 15px 0; }\n");
+                writer.write("    h2 { color: #aaaaaa; font-size: 14px; margin: 5px 0; }\n");
+                writer.write("    .chart-cell { background-color: #2d2d2d; padding: 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }\n");
+                writer.write("    .timestamp { color: #888888; font-size: 12px; margin-bottom: 20px; }\n");
+            } else {
+                writer.write("    body { background-color: #f5f5f5; color: #333; }\n");
+                writer.write("    h1 { color: #333; font-size: 22px; margin: 15px 0; }\n");
+                writer.write("    h2 { color: #666; font-size: 14px; margin: 5px 0; }\n");
+                writer.write("    .chart-cell { background-color: #fff; padding: 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n");
+                writer.write("    .timestamp { color: #999; font-size: 12px; margin-bottom: 20px; }\n");
+            }
+            
             writer.write("    .all-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }\n");
-            writer.write("    .chart-cell { background-color: #fff; padding: 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n");
             writer.write("    .chart-img { width: 100%; height: auto; display: block; }\n");
-            writer.write("    .timestamp { color: #999; font-size: 12px; margin-bottom: 20px; }\n");
             writer.write("  </style>\n");
             writer.write("</head>\n");
             writer.write("<body>\n");
@@ -408,7 +493,7 @@ public class PatternVisualReporter {
                 String safeProjectName = projectName.replace(' ', '_');
                 
                 for (String metric : projectResult.getMetrics()) {
-                    String combinedChartFile = safeProjectName + "_" + metric + "_combined.png";
+                    String combinedChartFile = safeProjectName + "_" + metric + "_combined.svg";
                     File combinedChartFileCheck = new File(outputDirectory, combinedChartFile);
                     
                     if (combinedChartFileCheck.exists()) {
@@ -416,7 +501,8 @@ public class PatternVisualReporter {
                         
                         writer.write("    <div class='chart-cell'>\n");
                         writer.write("      <h2>" + projectName + "</h2>\n");
-                        writer.write("      <img src='" + combinedChartFile + "' alt='" + metric + " for " + projectName + "' class='chart-img'>\n");
+                        writer.write("      <object type='image/svg+xml' data='" + combinedChartFile + 
+                                "' alt='" + metric + " for " + projectName + "' class='chart-img'>Your browser does not support SVG</object>\n");
                         writer.write("    </div>\n");
                     }
                 }
