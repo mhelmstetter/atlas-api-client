@@ -1,5 +1,7 @@
 package com.helmstetter.atlas.client;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -151,27 +153,125 @@ public class AtlasApiClient {
         return extractResults(responseBody);
     }
     
-    /**
-     * Get process-level measurements (CPU, memory, etc.)
-     */
     public List<Map<String, Object>> getProcessMeasurements(
             String projectId, String hostname, int port, 
             List<String> metrics, String granularity, String period) {
         
+        List<Map<String, Object>> allMeasurements = new ArrayList<>();
         String metricParams = formatMetricsParam(metrics);
         String processId = hostname + ":" + port;
         
-        String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
-                + "/measurements?granularity=" + granularity + "&period=" + period + "&" + metricParams;
+        // Start with page 1
+        int pageNum = 1;
+        boolean hasMorePages = true;
+        
+        while (hasMorePages) {
+            String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
+                    + "/measurements?granularity=" + granularity 
+                    + "&period=" + period 
+                    + "&pageNum=" + pageNum
+                    + "&itemsPerPage=500"  // Adjust as needed
+                    + "&" + metricParams;
 
-        try {
-            logger.debug("Calling process measurements URL: {}", url);
-            String responseBody = getResponseBody(url, API_VERSION_V2);
-            Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
-            return (List<Map<String, Object>>) responseMap.get("measurements");
-        } catch (Exception e) {
-            logger.error("Failed to get measurements for {}:{}: {}", hostname, port, e.getMessage());
-            throw new AtlasApiException("Failed to get measurements", e);
+            try {
+                logger.debug("Calling process measurements URL (page {}): {}", pageNum, url);
+                String responseBody = getResponseBody(url, API_VERSION_V2);
+                Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
+                
+                // Get measurements from this page
+                List<Map<String, Object>> pageMeasurements = (List<Map<String, Object>>) responseMap.get("measurements");
+                
+                if (pageMeasurements != null && !pageMeasurements.isEmpty()) {
+                    if (allMeasurements.isEmpty()) {
+                        // First page - just add all measurements
+                        allMeasurements.addAll(pageMeasurements);
+                    } else {
+                        // Subsequent pages - need to merge data points with matching metrics
+                        mergeDataPoints(allMeasurements, pageMeasurements);
+                    }
+                    
+                    // Check if there are more pages - look for pagination metadata
+                    // This depends on the exact API response structure
+                    Object totalCount = responseMap.get("totalCount");
+                    Object resultsPerPage = responseMap.get("resultsPerPage");
+                    
+                    if (totalCount instanceof Integer && resultsPerPage instanceof Integer) {
+                        int total = (Integer) totalCount;
+                        int perPage = (Integer) resultsPerPage;
+                        int totalPages = (int) Math.ceil((double) total / perPage);
+                        
+                        hasMorePages = pageNum < totalPages;
+                        logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
+                                pageNum, totalPages, hasMorePages);
+                    } else {
+                        // If we can't determine pagination info, check if the page had data
+                        hasMorePages = !pageMeasurements.isEmpty();
+                        logger.debug("No pagination metadata, inferring hasMorePages: {}", hasMorePages);
+                    }
+                } else {
+                    // No measurements on this page, we're done
+                    hasMorePages = false;
+                    logger.debug("No data on page {}, ending pagination", pageNum);
+                }
+                
+                // Move to next page
+                pageNum++;
+                
+            } catch (Exception e) {
+                logger.error("Failed to get measurements for {}:{} (page {}): {}", 
+                        hostname, port, pageNum, e.getMessage());
+                throw new AtlasApiException("Failed to get measurements", e);
+            }
+        }
+        
+        // Log the timespan of data
+        if (!allMeasurements.isEmpty()) {
+            for (Map<String, Object> measurement : allMeasurements) {
+                List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                String metricName = (String) measurement.get("name");
+                
+                if (dataPoints != null && dataPoints.size() > 1) {
+                    String firstTimestamp = (String) dataPoints.get(0).get("timestamp");
+                    String lastTimestamp = (String) dataPoints.get(dataPoints.size() - 1).get("timestamp");
+                    logger.info("Data timespan for {}:{} metric {}: {} to {} ({} points)", 
+                            hostname, port, metricName, firstTimestamp, lastTimestamp, dataPoints.size());
+                }
+            }
+        }
+        
+        return allMeasurements;
+    }
+
+    /**
+     * Merge data points from a new page with existing measurements
+     */
+    private void mergeDataPoints(List<Map<String, Object>> existingMeasurements, 
+                                List<Map<String, Object>> newPageMeasurements) {
+        
+        // Create a map of measurement name to measurement for quick lookups
+        Map<String, Map<String, Object>> existingMap = new HashMap<>();
+        for (Map<String, Object> measurement : existingMeasurements) {
+            String name = (String) measurement.get("name");
+            existingMap.put(name, measurement);
+        }
+        
+        // Merge the new measurements into existing ones
+        for (Map<String, Object> newMeasurement : newPageMeasurements) {
+            String name = (String) newMeasurement.get("name");
+            
+            if (existingMap.containsKey(name)) {
+                // Append data points to existing measurement
+                List<Map<String, Object>> existingDataPoints = 
+                        (List<Map<String, Object>>) existingMap.get(name).get("dataPoints");
+                List<Map<String, Object>> newDataPoints = 
+                        (List<Map<String, Object>>) newMeasurement.get("dataPoints");
+                
+                existingDataPoints.addAll(newDataPoints);
+            } else {
+                // This is a new measurement name, just add it to the list
+                existingMeasurements.add(newMeasurement);
+                existingMap.put(name, newMeasurement);
+            }
         }
     }
     
