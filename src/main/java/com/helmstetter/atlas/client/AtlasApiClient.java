@@ -546,7 +546,6 @@ public class AtlasApiClient {
                     + "&" + metricParams;
 
             try {
-                logger.debug("Calling process measurements URL (page {}): {}", pageNum, url);
                 String responseBody = getResponseBody(url, API_VERSION_V2, projectId);
                 Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
                 
@@ -587,9 +586,6 @@ public class AtlasApiClient {
                         // If we got less than the max items per page, assume it's the last page
                         // Or if we've fetched too many pages already, stop (as a safety measure)
                         hasMorePages = !pageMeasurements.isEmpty() && currentPageSize >= 500 && pageNum < 30;
-                        
-                        logger.debug("No pagination metadata. Current page has {} measurements with {} data points. Inferring hasMorePages: {}", 
-                                pageMeasurements.size(), currentPageSize, hasMorePages);
                     }
                 } else {
                     // No measurements on this page, we're done
