@@ -3,6 +3,8 @@ package com.helmstetter.atlas.client;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Rectangle;
+import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
@@ -23,9 +25,14 @@ import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
 import org.jfree.chart.axis.DateAxis;
 import org.jfree.chart.axis.NumberAxis;
+import org.jfree.chart.plot.Plot;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
 import org.jfree.chart.title.TextTitle;
+import org.jfree.chart.ui.HorizontalAlignment;
+import org.jfree.chart.ui.RectangleEdge;
+import org.jfree.chart.ui.RectangleInsets;
+import org.jfree.chart.ui.VerticalAlignment;
 import org.jfree.data.time.Millisecond;
 import org.jfree.data.time.TimeSeries;
 import org.jfree.data.time.TimeSeriesCollection;
@@ -36,6 +43,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Generates SVG charts and HTML index showing MongoDB Atlas metrics
  * Uses JFreeSVG for vector graphics output with dark mode support
+ * Optimized for maximum space utilization with minimum margins
  */
 public class PatternVisualReporter {
     
@@ -65,11 +73,6 @@ public class PatternVisualReporter {
     
     /**
      * Constructor to initialize the reporter with custom chart dimensions
-     * 
-     * @param apiClient The Atlas API client
-     * @param outputDirectory The directory where charts will be saved
-     * @param chartWidth The width of the generated charts in pixels
-     * @param chartHeight The height of the generated charts in pixels
      */
     public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory, int chartWidth, int chartHeight) {
         this(apiClient, outputDirectory, chartWidth, chartHeight, false);
@@ -77,12 +80,6 @@ public class PatternVisualReporter {
     
     /**
      * Constructor with dark mode option
-     * 
-     * @param apiClient The Atlas API client
-     * @param outputDirectory The directory where charts will be saved
-     * @param chartWidth The width of the generated charts in pixels
-     * @param chartHeight The height of the generated charts in pixels
-     * @param darkMode Whether to use dark mode for charts
      */
     public PatternVisualReporter(AtlasApiClient apiClient, String outputDirectory, 
             int chartWidth, int chartHeight, boolean darkMode) {
@@ -196,16 +193,16 @@ public class PatternVisualReporter {
                 // Create chart
                 JFreeChart chart = ChartFactory.createTimeSeriesChart(
                         metricName,          // chart title
-                        null,           // x-axis label (none for compactness)
-                        null,           // y-axis label (none for compactness)
-                        dataset,        // data
-                        false,          // no legend
-                        false,          // no tooltips
-                        false           // no URLs
+                        null,                // x-axis label (none for compactness)
+                        null,                // y-axis label (none for compactness)
+                        dataset,             // data
+                        false,               // no legend
+                        false,               // no tooltips
+                        false                // no URLs
                 );
                 
-                // Apply theme and styling
-                applyChartTheme(chart, isCpuMetric);
+                // Apply optimized styling
+                applyOptimizedChartTheme(chart, isCpuMetric);
                 
                 // Save chart to SVG file
                 String filename = String.format("%s/%s_%s_combined.svg", 
@@ -214,7 +211,7 @@ public class PatternVisualReporter {
                         metricName);
                 
                 // Create SVG using JFreeSVG
-                saveSvgChart(chart, filename);
+                saveOptimizedSvg(chart, filename);
                 
                 logger.info("SVG Chart saved to: {}", filename);
             } else {
@@ -228,13 +225,17 @@ public class PatternVisualReporter {
     }
     
     /**
-     * Apply theme settings to the chart
+     * Apply optimized theme settings to maximize chart area usage
      */
-    private void applyChartTheme(JFreeChart chart, boolean isCpuMetric) {
-        // Make title more compact and set color
-        TextTitle textTitle = chart.getTitle();
-        textTitle.setFont(new Font("SansSerif", Font.BOLD, 12));
-        textTitle.setPaint(textColor);
+    private void applyOptimizedChartTheme(JFreeChart chart, boolean isCpuMetric) {
+        // Completely eliminate chart padding
+        chart.setPadding(new RectangleInsets(0, 0, 0, 0));
+        
+        // Make title more compact
+        TextTitle title = chart.getTitle();
+        title.setFont(new Font("SansSerif", Font.BOLD, 11));
+        title.setPaint(textColor);
+        title.setMargin(new RectangleInsets(1, 0, 1, 0));
         
         // Set chart background
         chart.setBackgroundPaint(backgroundColor);
@@ -242,13 +243,16 @@ public class PatternVisualReporter {
         // Get the plot for customization
         XYPlot plot = chart.getXYPlot();
         
+        // Minimize plot insets - this is critical for space utilization
+        plot.setInsets(new RectangleInsets(1, 1, 1, 1));
+        
         // Set background color
         plot.setBackgroundPaint(backgroundColor);
         plot.setDomainGridlinePaint(gridLineColor);
         plot.setRangeGridlinePaint(gridLineColor);
-        plot.setOutlinePaint(textColor);
         
-        // Show gridlines for better readability
+        // Show gridlines
+        plot.setDomainGridlinesVisible(true);
         plot.setRangeGridlinesVisible(true);
         
         // Configure series appearance
@@ -261,50 +265,164 @@ public class PatternVisualReporter {
         }
         plot.setRenderer(renderer);
         
-        // Format date axis
+        // Format date axis with minimal margins
         DateAxis dateAxis = (DateAxis) plot.getDomainAxis();
         dateAxis.setDateFormatOverride(new SimpleDateFormat("HH:mm"));
         dateAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
         dateAxis.setTickLabelPaint(textColor);
         dateAxis.setLabelPaint(textColor);
+        dateAxis.setLowerMargin(0.01); // Very small left margin
+        dateAxis.setUpperMargin(0.01); // Very small right margin
         
         // Configure value axis
         NumberAxis valueAxis = (NumberAxis) plot.getRangeAxis();
         valueAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
         valueAxis.setTickLabelPaint(textColor);
         valueAxis.setLabelPaint(textColor);
+        valueAxis.setLowerMargin(0.01); // Very small bottom margin
+        valueAxis.setUpperMargin(0.01); // Very small top margin
         
         // CRITICAL: Set fixed scale for CPU metrics
         if (isCpuMetric) {
-            // For CPU metrics, explicitly disable auto range and set 0-100 scale
             valueAxis.setAutoRange(false);
             valueAxis.setRange(0.0, 100.0);
             logger.info("Set fixed 0-100 scale for CPU chart");
         } else {
-            // For non-CPU metrics, let chart determine appropriate scale
             valueAxis.setAutoRange(true);
             valueAxis.setAutoRangeIncludesZero(false);
+        }
+        
+        // Reduce space between plot area and axes
+        plot.setAxisOffset(new RectangleInsets(1, 1, 1, 1));
+    }
+    
+    /**
+     * Save optimized SVG with proper viewBox and preserveAspectRatio for maximum space usage
+     */
+    private void saveOptimizedSvg(JFreeChart chart, String filename) throws IOException {
+        // Create SVG graphics context with exact dimensions
+        SVGGraphics2D g2 = new SVGGraphics2D(chartWidth, chartHeight);
+        
+        // Draw chart using full available area
+        Rectangle drawArea = new Rectangle(0, 0, chartWidth, chartHeight);
+        chart.draw(g2, drawArea);
+        
+        // Get the SVG element
+        String svgElement = g2.getSVGElement();
+        
+        // Post-process the SVG to fix viewBox and other attributes
+        String optimizedSvg = postProcessSvg(svgElement);
+        
+        // Write to file
+        try (FileOutputStream fos = new FileOutputStream(filename);
+             OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
+            osw.write(optimizedSvg);
         }
     }
     
     /**
-     * Save chart as SVG using JFreeSVG
+     * Post-process SVG to add viewBox and preserveAspectRatio attributes,
+     * and optimize clip paths and transformations
      */
-    private void saveSvgChart(JFreeChart chart, String filename) throws IOException {
-        // Create SVG graphics context
-        SVGGraphics2D g2 = new SVGGraphics2D(chartWidth, chartHeight);
-        
-        // Draw chart to SVG graphics context
-        chart.draw(g2, new java.awt.Rectangle(chartWidth, chartHeight));
-        
-        // Get the SVG content
-        String svgElement = g2.getSVGElement();
-        
-        // Write SVG to file
-        try (FileOutputStream fos = new FileOutputStream(filename);
-             OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
-            osw.write(svgElement);
+    private String postProcessSvg(String svgElement) {
+        // First, ensure we have proper viewBox and preserveAspectRatio attributes
+        if (!svgElement.contains("viewBox=")) {
+            svgElement = svgElement.replace("<svg ", 
+                    String.format("<svg viewBox=\"0 0 %d %d\" ", chartWidth, chartHeight));
         }
+        
+        if (!svgElement.contains("preserveAspectRatio=")) {
+            svgElement = svgElement.replace("<svg ", "<svg preserveAspectRatio=\"none\" ");
+        }
+        
+        // Optimize clip paths to allow more chart area
+        // This regex finds clip path rectangles and increases their dimensions
+        Pattern clipPattern = Pattern.compile("<clipPath id=\"([^\"]+)\"><rect ([^>]+)/></clipPath>");
+        Matcher clipMatcher = clipPattern.matcher(svgElement);
+        
+        StringBuffer sb = new StringBuffer();
+        while (clipMatcher.find()) {
+            String clipId = clipMatcher.group(1);
+            String rectAttrs = clipMatcher.group(2);
+            
+            // Extract width and height
+            Pattern dimPattern = Pattern.compile("width=\"([^\"]+)\" height=\"([^\"]+)\"");
+            Matcher dimMatcher = dimPattern.matcher(rectAttrs);
+            
+            if (dimMatcher.find()) {
+                try {
+                    double width = Double.parseDouble(dimMatcher.group(1));
+                    double height = Double.parseDouble(dimMatcher.group(2));
+                    
+                    // Increase dimensions by 10%
+                    double newWidth = width * 1.10;
+                    double newHeight = height * 1.10;
+                    
+                    // Replace with new dimensions
+                    String newRectAttrs = rectAttrs.replace(
+                            "width=\"" + dimMatcher.group(1) + "\" height=\"" + dimMatcher.group(2) + "\"",
+                            String.format("width=\"%.1f\" height=\"%.1f\"", newWidth, newHeight)
+                    );
+                    
+                    // Rebuild the clip path with new dimensions
+                    clipMatcher.appendReplacement(sb, "<clipPath id=\"" + clipId + "\"><rect " + newRectAttrs + "/></clipPath>");
+                    
+                    logger.debug("Expanded clip path {} from {}x{} to {:.1f}x{:.1f}", 
+                            clipId, width, height, newWidth, newHeight);
+                } catch (NumberFormatException e) {
+                    // If we can't parse the numbers, keep original
+                    clipMatcher.appendReplacement(sb, clipMatcher.group(0));
+                }
+            } else {
+                // No width/height found, keep original
+                clipMatcher.appendReplacement(sb, clipMatcher.group(0));
+            }
+        }
+        clipMatcher.appendTail(sb);
+        svgElement = sb.toString();
+        
+        // Optimize transform attributes to reduce margins
+        // This is more complex and somewhat risky, so we'll be conservative
+        Pattern transformPattern = Pattern.compile("<g class=\"(plot|axis)\"([^>]*)transform=\"translate\\(([^,]+),([^)]+)\\)([^\"]*)\">"); 
+        Matcher transformMatcher = transformPattern.matcher(svgElement);
+        
+        sb = new StringBuffer();
+        while (transformMatcher.find()) {
+            String elementClass = transformMatcher.group(1);
+            String extraAttrs = transformMatcher.group(2);
+            String translateX = transformMatcher.group(3);
+            String translateY = transformMatcher.group(4);
+            String restOfTransform = transformMatcher.group(5);
+            
+            try {
+                double x = Double.parseDouble(translateX);
+                double y = Double.parseDouble(translateY);
+                
+                // Different optimization depending on element type
+                if ("plot".equals(elementClass)) {
+                    // For plot elements, reduce margins but keep some space for axes
+                    // Only reduce if they seem excessively large
+                    if (x > 40) {
+                        x = Math.max(35, x * 0.85); // Reduce but keep some margin
+                    }
+                    if (y > 20) {
+                        y = Math.max(15, y * 0.85); // Reduce but keep some margin
+                    }
+                }
+                
+                // Rebuild transform with adjusted values
+                transformMatcher.appendReplacement(sb, 
+                    String.format("<g class=\"%s\"%stransform=\"translate(%.1f,%.1f)%s\">", 
+                            elementClass, extraAttrs, x, y, restOfTransform));
+                
+            } catch (NumberFormatException e) {
+                // Keep original if we can't parse the numbers
+                transformMatcher.appendReplacement(sb, transformMatcher.group(0));
+            }
+        }
+        transformMatcher.appendTail(sb);
+        
+        return sb.toString();
     }
     
     /**
@@ -436,8 +554,6 @@ public class PatternVisualReporter {
     
     /**
      * Create HTML index with all projects tiled in a grid layout
-     * Projects will be sorted by name with natural alphanumeric sorting
-     * The HTML includes a toggle for switching between light and dark mode
      */
     public void createHtmlIndex(Map<String, ProjectMetricsResult> projectResults) {
         String indexPath = outputDirectory + "/index.html";
@@ -466,7 +582,8 @@ public class PatternVisualReporter {
             }
             
             writer.write("    .all-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }\n");
-            writer.write("    .chart-img { width: 100%; height: auto; display: block; }\n");
+            writer.write("    .chart-img { width: 100%; height: auto; min-height: " + chartHeight + "px; }\n");
+            writer.write("    .chart-container { display: flex; justify-content: center; align-items: center; }\n");
             writer.write("  </style>\n");
             writer.write("</head>\n");
             writer.write("<body>\n");
@@ -501,8 +618,11 @@ public class PatternVisualReporter {
                         
                         writer.write("    <div class='chart-cell'>\n");
                         writer.write("      <h2>" + projectName + "</h2>\n");
-                        writer.write("      <object type='image/svg+xml' data='" + combinedChartFile + 
-                                "' alt='" + metric + " for " + projectName + "' class='chart-img'>Your browser does not support SVG</object>\n");
+                        writer.write("      <div class='chart-container'>\n");
+                        writer.write("        <object type='image/svg+xml' data='" + combinedChartFile + 
+                                "' alt='" + metric + " for " + projectName + "' class='chart-img' width='" + 
+                                chartWidth + "' height='" + chartHeight + "'>Your browser does not support SVG</object>\n");
+                        writer.write("      </div>\n");
                         writer.write("    </div>\n");
                     }
                 }
