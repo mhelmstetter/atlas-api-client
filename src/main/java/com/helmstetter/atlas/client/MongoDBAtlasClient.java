@@ -71,6 +71,9 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--chartHeight" }, description = "Height of generated charts in pixels", required = false, defaultValue = "300")
     private int chartHeight;
     
+    @Option(names = { "--darkMode" }, description = "Enable dark mode for charts and HTML", required = false, defaultValue = "true")
+    private boolean darkMode;
+    
     // Service components
     private AtlasApiClient apiClient;
     private MetricsProcessor metricsProcessor;
@@ -100,7 +103,8 @@ public class MongoDBAtlasClient implements Callable<Integer> {
         
         // Generate visualizations if pattern analysis is enabled
         if (analyzePatterns) {
-            PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight);
+            // Initialize PatternVisualReporter with dark mode option
+            PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
             
             // Generate combined charts for each project and metric
             for (ProjectMetricsResult projectResult : results.values()) {
@@ -116,8 +120,8 @@ public class MongoDBAtlasClient implements Callable<Integer> {
                 reporter.createHtmlIndex(results);
             }
             
-            logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{})", 
-                    chartOutputDir, chartWidth, chartHeight);
+            logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
+                    chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");
         }
         
         return 0;
