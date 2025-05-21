@@ -27,8 +27,12 @@ public class MetricsProcessor {
     private final PatternAnalyzer patternAnalyzer;
     private final boolean analyzePatterns;
     
-    // Tracking for API request counts
-    private final Map<String, Integer> projectApiRequestCounts = new HashMap<>();
+    // Automatically determined - no need for explicit flag
+    private final boolean useExplicitTimeRange;
+    private final int periodDays;
+    
+    // Threshold for using explicit timerange (in hours)
+    private static final int TIMERANGE_THRESHOLD_HOURS = 48;
     
     public MetricsProcessor(AtlasApiClient apiClient, List<String> metrics, String period, String granularity) {
         this(apiClient, metrics, period, granularity, false);
@@ -42,6 +46,65 @@ public class MetricsProcessor {
         this.granularity = granularity;
         this.patternAnalyzer = new PatternAnalyzer();
         this.analyzePatterns = analyzePatterns;
+        
+        // Parse period and determine whether to use explicit timerange
+        int days = parsePeriodToDays(period);
+        this.periodDays = days;
+        
+        // Use explicit timerange if period is longer than threshold
+        boolean useExplicit = days * 24 > TIMERANGE_THRESHOLD_HOURS;
+        this.useExplicitTimeRange = useExplicit;
+        
+        // Log which approach we're using
+        if (useExplicitTimeRange) {
+            logger.info("Using explicit timerange approach with {} days lookback (period: {})", 
+                    periodDays, period);
+        } else {
+            logger.info("Using period-based approach with period {}", period);
+        }
+    }
+    
+    /**
+     * Parse an ISO 8601 duration string to days using standard Java libraries
+     * 
+     * @param periodStr ISO 8601 duration string (e.g., P7D, PT24H)
+     * @return Number of days (or fractional days for sub-day periods)
+     */
+    private int parsePeriodToDays(String periodStr) {
+        try {
+            if (periodStr == null || periodStr.isEmpty()) {
+                logger.warn("No period specified, defaulting to 7 days");
+                return 7;
+            }
+            
+            // Use java.time.Duration for parsing ISO 8601 durations
+            java.time.Duration duration = java.time.Duration.parse(periodStr);
+            double days = duration.toHours() / 24.0;
+            
+            // Special case for Period format (P1D, P7D, etc.)
+            if (periodStr.startsWith("P") && !periodStr.contains("T")) {
+                try {
+                    java.time.Period period = java.time.Period.parse(periodStr);
+                    days = period.getDays();
+                    
+                    // Handle years and months approximately
+                    days += period.getYears() * 365;
+                    days += period.getMonths() * 30;
+                } catch (Exception e) {
+                    // If we can't parse as Period, fall back to Duration result
+                    logger.debug("Couldn't parse as Period, using Duration result: {}", days);
+                }
+            }
+            
+            // Round to nearest day, minimum 1
+            int roundedDays = Math.max(1, (int)Math.round(days));
+            logger.info("Parsed period {} to {} days", periodStr, roundedDays);
+            return roundedDays;
+            
+        } catch (Exception e) {
+            logger.warn("Error parsing period {}, defaulting to 7 days: {}", periodStr, e.getMessage());
+            return 7;
+        }
     }
     
     /**
@@ -209,8 +272,10 @@ public class MetricsProcessor {
         }
     }
     
+
     /**
-     * Process system-level metrics (CPU, memory)
+     * Process system-level metrics, automatically selecting the appropriate method
+     * based on the period duration
      */
     private void processSystemMetrics(
             ProjectMetricsResult projectResult, 
@@ -226,10 +291,22 @@ public class MetricsProcessor {
         }
         
         try {
-            // Get measurements for this process
-            List<Map<String, Object>> measurements = 
-                    apiClient.getProcessMeasurements(projectResult.getProjectId(), 
-                            hostname, port, systemMetrics, granularity, period);
+            // Use either explicit timerange or period-based approach based on duration
+            List<Map<String, Object>> measurements;
+            
+            if (useExplicitTimeRange) {
+                // Use explicit timerange for longer periods
+                measurements = apiClient.getProcessMeasurementsWithTimeRange(
+                        projectResult.getProjectId(), 
+                        hostname, port, 
+                        systemMetrics, granularity, periodDays);
+            } else {
+                // Use standard period-based approach for shorter periods
+                measurements = apiClient.getProcessMeasurements(
+                        projectResult.getProjectId(), 
+                        hostname, port, 
+                        systemMetrics, granularity, period);
+            }
             
             if (measurements == null || measurements.isEmpty()) {
                 logger.warn("{} {} -> No measurements data found", 
@@ -253,7 +330,8 @@ public class MetricsProcessor {
     }
     
     /**
-     * Process disk-level metrics
+     * Process disk-level metrics, automatically selecting the appropriate method
+     * based on the period duration
      */
     private void processDiskMetrics(
             ProjectMetricsResult projectResult, 
@@ -284,10 +362,20 @@ public class MetricsProcessor {
                 String partitionName = (String) disk.get("partitionName");
                 
                 try {
-                    // Get measurements for this disk partition
-                    List<Map<String, Object>> measurements = 
-                            apiClient.getDiskMeasurements(projectId, hostname, port, 
-                                    partitionName, diskMetrics, granularity, period);
+                    // Use either explicit timerange or period-based approach based on duration
+                    List<Map<String, Object>> measurements;
+                    
+                    if (useExplicitTimeRange) {
+                        // Use explicit timerange for longer periods
+                        measurements = apiClient.getDiskMeasurementsWithTimeRange(
+                                projectId, hostname, port, partitionName,
+                                diskMetrics, granularity, periodDays);
+                    } else {
+                        // Use standard period-based approach for shorter periods
+                        measurements = apiClient.getDiskMeasurements(
+                                projectId, hostname, port, partitionName,
+                                diskMetrics, granularity, period);
+                    }
                     
                     if (measurements == null || measurements.isEmpty()) {
                         logger.warn("{} {}:{} partition {} -> No disk measurements found", 
@@ -314,6 +402,7 @@ public class MetricsProcessor {
                     hostname, port, e.getMessage());
         }
     }
+
     
     /**
      * Process a set of measurements and add them to the project result

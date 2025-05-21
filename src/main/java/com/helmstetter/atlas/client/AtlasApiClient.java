@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -475,47 +476,94 @@ public class AtlasApiClient {
     }
     
     /**
-     * Get disk-level measurements for a specific partition with optimized pagination
+     * Get disk measurements using explicit start and end timestamps instead of period
+     * This method should be added to the AtlasApiClient class
+     * 
+     * @param projectId The project ID
+     * @param hostname The hostname of the process
+     * @param port The port of the process
+     * @param partitionName The name of the disk partition
+     * @param metrics List of metrics to retrieve
+     * @param granularity The granularity of the measurements (e.g., "PT10S" for 10 seconds)
+     * @param periodDays Number of days to look back from now
+     * @return List of measurements with data points
      */
-    public List<Map<String, Object>> getDiskMeasurements(
+    public List<Map<String, Object>> getDiskMeasurementsWithTimeRange(
             String projectId, String hostname, int port, String partitionName,
-            List<String> metrics, String granularity, String period, int itemsPerPage) {
+            List<String> metrics, String granularity, int periodDays) {
         
         String processId = hostname + ":" + port;
         String metricParams = formatMetricsParam(metrics);
         
-        // Log the parameter details
-        logger.info("Fetching disk measurements for {}:{} partition {} with {} metrics, period={}, granularity={}, itemsPerPage={}",
-                hostname, port, partitionName, metrics.size(), period, granularity, itemsPerPage);
+        // Calculate start and end times
+        Instant endTime = Instant.now();
+        Instant startTime = endTime.minus(periodDays, ChronoUnit.DAYS);
         
-        String url = BASE_URL_V1 + "/groups/" + projectId + "/processes/" + processId + 
-                "/disks/" + partitionName + "/measurements" +
-                "?granularity=" + granularity + 
-                "&period=" + period + 
-                "&itemsPerPage=" + itemsPerPage +
-                "&" + metricParams;
+        // Format as ISO 8601 UTC timestamps
+        String endTimeStr = endTime.toString();
+        String startTimeStr = startTime.toString();
+        
+        logger.info("Fetching disk measurements for {}:{} partition {} from {} to {}", 
+                hostname, port, partitionName, startTimeStr, endTimeStr);
         
         try {
-            logger.debug("Calling disk measurements URL: {}", url);
+            String url = BASE_URL_V1 + "/groups/" + projectId + "/processes/" + processId + 
+                    "/disks/" + partitionName + "/measurements" +
+                    "?granularity=" + granularity + 
+                    "&start=" + startTimeStr +
+                    "&end=" + endTimeStr +
+                    "&" + metricParams;
+            
+            logger.debug("Calling disk measurements URL with timerange: {}", url);
             String responseBody = getResponseBody(url, API_VERSION_V1, projectId);
             
             Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
             List<Map<String, Object>> measurements = (List<Map<String, Object>>) responseMap.get("measurements");
             
-            // Count total data points
-            int totalDataPoints = 0;
-            if (measurements != null) {
+            // Add additional logging for the data range we received
+            if (measurements != null && !measurements.isEmpty()) {
+                // Log total data points received
+                int totalDataPoints = 0;
                 for (Map<String, Object> measurement : measurements) {
                     List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
                     if (dataPoints != null) {
                         totalDataPoints += dataPoints.size();
+                        
+                        // Find actual date range in the data
+                        if (!dataPoints.isEmpty()) {
+                            String firstTimestamp = (String) dataPoints.get(0).get("timestamp");
+                            String lastTimestamp = (String) dataPoints.get(dataPoints.size() - 1).get("timestamp");
+                            
+                            logger.info("Retrieved data for {}:{} partition {} metric {}: {} to {} ({} points)", 
+                                    hostname, port, partitionName, 
+                                    measurement.get("name"), firstTimestamp, lastTimestamp, 
+                                    dataPoints.size());
+                            
+                            // Check if the date range matches what we requested
+                            try {
+                                Instant firstInstant = Instant.parse(firstTimestamp);
+                                Instant lastInstant = Instant.parse(lastTimestamp);
+                                
+                                // Calculate the difference in days
+                                long actualDays = ChronoUnit.DAYS.between(firstInstant, lastInstant);
+                                
+                                if (actualDays < periodDays * 0.9) { // If we got less than 90% of requested time
+                                    logger.warn("Only received {} days of data for {} partition {}, but requested {} days",
+                                            actualDays, processId, partitionName, periodDays);
+                                }
+                            } catch (Exception e) {
+                                logger.warn("Error parsing timestamps: {}", e.getMessage());
+                            }
+                        }
                     }
                 }
+                
+                logger.info("Total disk data points for {}:{} partition {}: {}", 
+                        hostname, port, partitionName, totalDataPoints);
+            } else {
+                logger.warn("No disk measurements returned for {}:{} partition {}", 
+                        hostname, port, partitionName);
             }
-            
-            logger.info("Retrieved {} measurements with {} total data points for {}:{} partition {}",
-                    measurements != null ? measurements.size() : 0, 
-                    totalDataPoints, hostname, port, partitionName);
             
             return measurements;
         } catch (Exception e) {
@@ -620,6 +668,236 @@ public class AtlasApiClient {
         
         return allMeasurements;
     }
+    
+    /**
+     * Get process measurements using explicit start and end timestamps instead of period
+     * This gives more precise control over the time range and avoids potential issues with period interpretation
+     * 
+     * @param projectId The project ID
+     * @param hostname The hostname of the process
+     * @param port The port of the process
+     * @param metrics List of metrics to retrieve
+     * @param granularity The granularity of the measurements (e.g., "PT10S" for 10 seconds)
+     * @param periodDays Number of days to look back from now
+     * @return List of measurements with data points
+     */
+    public List<Map<String, Object>> getProcessMeasurementsWithTimeRange(
+            String projectId, String hostname, int port, 
+            List<String> metrics, String granularity, int periodDays) {
+        
+        List<Map<String, Object>> allMeasurements = new ArrayList<>();
+        String metricParams = formatMetricsParam(metrics);
+        String processId = hostname + ":" + port;
+        
+        // Calculate start and end times
+        Instant endTime = Instant.now();
+        Instant startTime = endTime.minus(periodDays, ChronoUnit.DAYS);
+        
+        // Format as ISO 8601 UTC timestamps
+        String endTimeStr = endTime.toString();
+        String startTimeStr = startTime.toString();
+        
+        logger.info("Fetching measurements for {}:{} from {} to {}", 
+                hostname, port, startTimeStr, endTimeStr);
+        
+        // Start with page 1
+        int pageNum = 1;
+        boolean hasMorePages = true;
+        
+        while (hasMorePages) {
+            String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
+                    + "/measurements?granularity=" + granularity 
+                    + "&start=" + startTimeStr
+                    + "&end=" + endTimeStr
+                    + "&pageNum=" + pageNum
+                    + "&itemsPerPage=500"  // Use maximum page size
+                    + "&" + metricParams;
+
+            try {
+                String responseBody = getResponseBody(url, API_VERSION_V2, projectId);
+                Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
+                
+                // Get measurements from this page
+                List<Map<String, Object>> pageMeasurements = (List<Map<String, Object>>) responseMap.get("measurements");
+                
+                if (pageMeasurements != null && !pageMeasurements.isEmpty()) {
+                    if (allMeasurements.isEmpty()) {
+                        // First page - just add all measurements
+                        allMeasurements.addAll(pageMeasurements);
+                        
+                        // Log the timespan of the first batch of data
+                        logTimeRangeInfo(pageMeasurements, processId);
+                    } else {
+                        // Subsequent pages - merge data points with matching metrics
+                        mergeDataPoints(allMeasurements, pageMeasurements);
+                    }
+                    
+                    // Check if there are more pages
+                    Object totalCount = responseMap.get("totalCount");
+                    Object resultsPerPage = responseMap.get("resultsPerPage");
+
+                    if (totalCount instanceof Integer && resultsPerPage instanceof Integer) {
+                        int total = (Integer) totalCount;
+                        int perPage = (Integer) resultsPerPage;
+                        int totalPages = (perPage > 0) ? (int) Math.ceil((double) total / perPage) : 0;
+                        
+                        hasMorePages = pageNum < totalPages;
+                        logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
+                                pageNum, totalPages, hasMorePages);
+                    } else {
+                        // If we can't determine pagination info, check if the page had FULL data
+                        int currentPageSize = countDataPoints(pageMeasurements);
+                        
+                        // If we got less than the max items per page, assume it's the last page
+                        // Or if we've fetched too many pages already, stop (as a safety measure)
+                        hasMorePages = currentPageSize >= 500 && pageNum < 50;
+                        
+                        // Log details about current page
+                        logger.debug("Page {} has {} data points, continuing: {}", 
+                                pageNum, currentPageSize, hasMorePages);
+                    }
+                } else {
+                    // No measurements on this page, we're done
+                    hasMorePages = false;
+                    logger.debug("No data on page {}, ending pagination", pageNum);
+                }
+                
+                // Move to next page
+                pageNum++;
+                
+            } catch (Exception e) {
+                logger.error("Failed to get measurements for {}:{} (page {}): {}", 
+                        hostname, port, pageNum, e.getMessage());
+                throw new AtlasApiException("Failed to get measurements", e);
+            }
+        }
+        
+        // Log the timespan of the final data
+        logFinalDataTimespan(allMeasurements, hostname, port, startTimeStr, endTimeStr);
+        
+        return allMeasurements;
+    }
+
+    /**
+     * Helper method to count total data points in a page
+     */
+    private int countDataPoints(List<Map<String, Object>> measurements) {
+        int count = 0;
+        for (Map<String, Object> measurement : measurements) {
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+            if (dataPoints != null) {
+                count += dataPoints.size();
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Helper method to log information about the initial data range
+     */
+    private void logTimeRangeInfo(List<Map<String, Object>> measurements, String processId) {
+        Date earliest = findEarliestDate(measurements);
+        Date latest = findLatestDate(measurements);
+        
+        if (earliest != null && latest != null) {
+            logger.info("Initial data range for {}: {} to {}", 
+                    processId, earliest, latest);
+        }
+    }
+
+    /**
+     * Helper method to log information about the final data timespan
+     */
+    private void logFinalDataTimespan(List<Map<String, Object>> allMeasurements, 
+                                   String hostname, int port, 
+                                   String requestedStart, String requestedEnd) {
+        if (!allMeasurements.isEmpty()) {
+            for (Map<String, Object> measurement : allMeasurements) {
+                List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                String metricName = (String) measurement.get("name");
+                
+                if (dataPoints != null && dataPoints.size() > 1) {
+                    String firstTimestamp = (String) dataPoints.get(0).get("timestamp");
+                    String lastTimestamp = (String) dataPoints.get(dataPoints.size() - 1).get("timestamp");
+                    
+                    logger.info("Final data timespan for {}:{} metric {}: {} to {} ({} points)", 
+                            hostname, port, metricName, firstTimestamp, lastTimestamp, dataPoints.size());
+                    
+                    // Calculate days between timestamps
+                    try {
+                        Instant first = Instant.parse(firstTimestamp);
+                        Instant last = Instant.parse(lastTimestamp);
+                        long daysBetween = ChronoUnit.DAYS.between(first, last);
+                        logger.info("Timespan covers {} days", daysBetween);
+                        
+                        // Compare with requested timespan
+                        Instant reqStart = Instant.parse(requestedStart);
+                        Instant reqEnd = Instant.parse(requestedEnd);
+                        long requestedDays = ChronoUnit.DAYS.between(reqStart, reqEnd);
+                        
+                        if (daysBetween < requestedDays * 0.9) { // Allow 10% difference
+                            logger.warn("Only received {} days of data, but requested {} days", 
+                                    daysBetween, requestedDays);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Could not calculate days between timestamps", e);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Helper method to find the earliest date in measurements
+     */
+    private Date findEarliestDate(List<Map<String, Object>> measurements) {
+        Date earliest = null;
+        for (Map<String, Object> measurement : measurements) {
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+            if (dataPoints != null && !dataPoints.isEmpty()) {
+                for (Map<String, Object> dataPoint : dataPoints) {
+                    String timestamp = (String) dataPoint.get("timestamp");
+                    if (timestamp != null) {
+                        try {
+                            Date date = Date.from(Instant.parse(timestamp));
+                            if (earliest == null || date.before(earliest)) {
+                                earliest = date;
+                            }
+                        } catch (Exception e) {
+                            // Ignore parsing errors
+                        }
+                    }
+                }
+            }
+        }
+        return earliest;
+    }
+
+    /**
+     * Helper method to find the latest date in measurements
+     */
+    private Date findLatestDate(List<Map<String, Object>> measurements) {
+        Date latest = null;
+        for (Map<String, Object> measurement : measurements) {
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+            if (dataPoints != null && !dataPoints.isEmpty()) {
+                for (Map<String, Object> dataPoint : dataPoints) {
+                    String timestamp = (String) dataPoint.get("timestamp");
+                    if (timestamp != null) {
+                        try {
+                            Date date = Date.from(Instant.parse(timestamp));
+                            if (latest == null || date.after(latest)) {
+                                latest = date;
+                            }
+                        } catch (Exception e) {
+                            // Ignore parsing errors
+                        }
+                    }
+                }
+            }
+        }
+        return latest;
+    }
 
     /**
      * Merge data points from a new page with existing measurements
@@ -645,7 +923,14 @@ public class AtlasApiClient {
                 List<Map<String, Object>> newDataPoints = 
                         (List<Map<String, Object>>) newMeasurement.get("dataPoints");
                 
+                int existingSize = existingDataPoints.size();
+                int newSize = newDataPoints.size();
+                
                 existingDataPoints.addAll(newDataPoints);
+                
+                int mergedSize = existingDataPoints.size();
+                
+                logger.debug("existingSize: {}, newSize: {}, mergedSize: {}", existingSize, newSize, mergedSize);
             } else {
                 // This is a new measurement name, just add it to the list
                 existingMeasurements.add(newMeasurement);

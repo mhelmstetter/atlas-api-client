@@ -18,7 +18,7 @@ import picocli.CommandLine.PropertiesDefaultProvider;
 
 /**
  * Main entry point for the MongoDB Atlas API client
- * Simplified to only generate combined metric charts
+ * Enhanced with metric storage and separation of collection from processing
  */
 @Command(name = "MongoDBAtlasClient", mixinStandardHelpOptions = true, 
     description = "MongoDB Atlas API client", defaultValueProvider = PropertiesDefaultProvider.class)
@@ -74,20 +74,71 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--darkMode" }, description = "Enable dark mode for charts and HTML", required = false, defaultValue = "true")
     private boolean darkMode;
     
+    // New options for metrics storage
+    @Option(names = { "--storeMetrics" }, description = "Store metrics in MongoDB", required = false, defaultValue = "false")
+    private boolean storeMetrics;
+    
+    @Option(names = { "--collectOnly" }, description = "Only collect and store metrics without processing", required = false, defaultValue = "false")
+    private boolean collectOnly;
+    
+    @Option(names = { "--mongodbUri" }, description = "MongoDB connection URI for metrics storage", required = false)
+    private String mongodbUri;
+    
+    @Option(names = { "--mongodbDatabase" }, description = "MongoDB database name for metrics storage", required = false, defaultValue = "atlas_metrics")
+    private String mongodbDatabase;
+    
+    @Option(names = { "--mongodbCollection" }, description = "MongoDB collection name for metrics storage", required = false, defaultValue = "metrics")
+    private String mongodbCollection;
+    
     // Service components
     private AtlasApiClient apiClient;
+    private MetricsStorage metricsStorage;
+    private MetricsCollector metricsCollector;
     private MetricsProcessor metricsProcessor;
     
     @Override
     public Integer call() throws Exception {
-        // Initialize the API client
+        // Initialize the API client (with reduced debug level)
         this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, 0);
         
-        // Initialize the metrics processor with pattern analysis option
-        this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
+        // Initialize metrics storage if enabled
+        if (storeMetrics) {
+            if (mongodbUri == null || mongodbUri.isEmpty()) {
+                logger.error("MongoDB URI is required when --storeMetrics is enabled");
+                return 1;
+            }
+            
+            try {
+                logger.info("Initializing metrics storage: database={}, collection={}", 
+                        mongodbDatabase, mongodbCollection);
+                this.metricsStorage = new MetricsStorage(mongodbUri, mongodbDatabase, mongodbCollection);
+            } catch (Exception e) {
+                logger.error("Failed to initialize metrics storage: {}", e.getMessage(), e);
+                return 1;
+            }
+        }
         
-        // Process metrics for all projects
-        Map<String, ProjectMetricsResult> results = metricsProcessor.processProjectMetrics(includeProjectNames);
+        // Initialize the metrics collector with storage option
+        this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
+                metricsStorage, storeMetrics, collectOnly);
+        
+        // Collect metrics for all projects
+        Map<String, ProjectMetricsResult> results = metricsCollector.collectMetrics(includeProjectNames);
+        
+        // If in collect-only mode, we're done
+        if (collectOnly) {
+            logger.info("Collection complete. Skipping processing and visualization in collect-only mode.");
+            
+            // Close the metrics storage if used
+            if (metricsStorage != null) {
+                metricsStorage.close();
+            }
+            
+            return 0;
+        }
+        
+        // Initialize the metrics processor with pattern analysis option if we're not in collect-only mode
+        this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
         
         // Export to CSV if filename was provided
         if (exportCsvFilename != null && !exportCsvFilename.isEmpty()) {
@@ -122,6 +173,11 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             
             logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
                     chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");
+        }
+        
+        // Close the metrics storage if used
+        if (metricsStorage != null) {
+            metricsStorage.close();
         }
         
         return 0;
