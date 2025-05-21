@@ -697,18 +697,7 @@ public class AtlasApiClient {
                         logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
                                 pageNum, totalPages, hasMorePages);
                     } else {
-                        // If we can't determine pagination info, check if the page had FULL data
-                        int currentPageSize = 0;
-                        for (Map<String, Object> measurement : pageMeasurements) {
-                            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
-                            if (dataPoints != null) {
-                                currentPageSize += dataPoints.size();
-                            }
-                        }
-                        
-                        // If we got less than the max items per page, assume it's the last page
-                        // Or if we've fetched too many pages already, stop (as a safety measure)
-                        hasMorePages = !pageMeasurements.isEmpty() && currentPageSize >= 500 && pageNum < 30;
+                    	hasMorePages = false;
                     }
                 } else {
                     // No measurements on this page, we're done
@@ -748,20 +737,7 @@ public class AtlasApiClient {
             String projectId, String hostname, int port, 
             List<String> metrics, String granularity, String period) {
         
-
-        
-        // Predict expected data points and pages
-        int expectedDataPoints = MetricsPagingCalculator.calculateExpectedDataPoints(period, granularity);
         int pageSize = 500; // As specified in the method
-        int expectedPages = MetricsPagingCalculator.calculateExpectedPages(
-            expectedDataPoints, pageSize);
-        
-        logger.info("Metrics Collection Prediction for {}:{}", hostname, port);
-        logger.info("  Granularity: {}", granularity);
-        logger.info("  Period: {}", period);
-        logger.info("  Expected Data Points: {}", expectedDataPoints);
-        logger.info("  Page Size: {}", pageSize);
-        logger.info("  Expected Pages: {}", expectedPages);
         
         List<Map<String, Object>> allMeasurements = new ArrayList<>();
         String metricParams = formatMetricsParam(metrics);
@@ -824,8 +800,7 @@ public class AtlasApiClient {
                         logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
                                 pageNum, totalPages, hasMorePages);
                     } else {
-                        // Fallback to data-driven pagination
-                        hasMorePages = pageDataPoints >= pageSize && pageNum < expectedPages * 2;
+                    	hasMorePages = false;
                     }
                 } else {
                     // No more data
@@ -846,12 +821,6 @@ public class AtlasApiClient {
         logger.info("Final Collection Summary for {}:{}", hostname, port);
         logger.info("  Total Pages Processed: {}", totalPagesProcessed);
         logger.info("  Total Data Points Collected: {}", totalDataPointsCollected);
-        
-        // Validate against expectations
-        MetricsPagingCalculator.validateDataCollection(
-            period, granularity, pageSize, 
-            totalPagesProcessed, totalDataPointsCollected
-        );
         
         return allMeasurements;
     }
@@ -1059,16 +1028,7 @@ public class AtlasApiClient {
                         logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
                                 pageNum, totalPages, hasMorePages);
                     } else {
-                        // If we can't determine pagination info, check if the page had FULL data
-                        int currentPageSize = countDataPoints(pageMeasurements);
-                        
-                        // If we got less than the max items per page, assume it's the last page
-                        // Or if we've fetched too many pages already, stop (as a safety measure)
-                        hasMorePages = currentPageSize >= 500 && pageNum < 50;
-                        
-                        // Log details about current page
-                        logger.debug("Page {} has {} data points, continuing: {}", 
-                                pageNum, currentPageSize, hasMorePages);
+                    	hasMorePages = false;
                     }
                 } else {
                     // No measurements on this page, we're done

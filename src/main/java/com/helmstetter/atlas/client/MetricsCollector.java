@@ -376,21 +376,21 @@ public class MetricsCollector {
                 
                 
                 
-                // Only adjust period if we found a valid last timestamp
-                if (hostLastTimestamp != null) {
-                    // Add a small overlap to ensure we don't miss any data (10 minutes)
-                    startTime = hostLastTimestamp.minus(10, ChronoUnit.MINUTES);
-                    
-                    // Calculate hours between start time and now
-                    long hoursToFetch = ChronoUnit.HOURS.between(startTime, Instant.now());
-                    
-                    if (hoursToFetch < 1) {
-                        logger.info("Process {}:{} - Last data from {} is very recent, skipping collection",
-                                hostname, port, hostLastTimestamp);
-                        // Skip if we have very recent data (less than an hour old)
-                        return 0;
-                    }
-                }
+//                // Only adjust period if we found a valid last timestamp
+//                if (hostLastTimestamp != null) {
+//                    // Add a small overlap to ensure we don't miss any data (10 minutes)
+//                    startTime = hostLastTimestamp.minus(10, ChronoUnit.MINUTES);
+//                    
+//                    // Calculate hours between start time and now
+//                    long hoursToFetch = ChronoUnit.HOURS.between(startTime, Instant.now());
+//                    
+//                    if (hoursToFetch < 1) {
+//                        logger.info("Process {}:{} - Last data from {} is very recent, skipping collection",
+//                                hostname, port, hostLastTimestamp);
+//                        // Skip if we have very recent data (less than an hour old)
+//                        return 0;
+//                    }
+//                }
             }
             
             // Now use either the explicit start time (if we have it) or the period
