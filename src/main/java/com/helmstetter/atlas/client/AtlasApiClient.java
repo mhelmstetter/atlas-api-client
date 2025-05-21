@@ -777,6 +777,126 @@ public class AtlasApiClient {
         
         return allMeasurements;
     }
+    
+    /**
+     * Get process measurements using explicit start and end timestamps
+     * This gives more precise control over the time range and avoids potential issues with period interpretation
+     * 
+     * @param projectId The project ID
+     * @param hostname The hostname of the process
+     * @param port The port of the process
+     * @param metrics List of metrics to retrieve
+     * @param granularity The granularity of the measurements (e.g., "PT10S" for 10 seconds)
+     * @param startTime Explicit start time
+     * @param endTime Explicit end time
+     * @return List of measurements with data points
+     */
+    public List<Map<String, Object>> getProcessMeasurementsWithExplicitTimeRange(
+            String projectId, String hostname, int port, 
+            List<String> metrics, String granularity, 
+            Instant startTime, Instant endTime) {
+        
+        List<Map<String, Object>> allMeasurements = new ArrayList<>();
+        String metricParams = formatMetricsParam(metrics);
+        String processId = hostname + ":" + port;
+        
+        // Format as ISO 8601 UTC timestamps
+        String endTimeStr = endTime.toString();
+        String startTimeStr = startTime.toString();
+        
+        logger.info("Fetching measurements for {}:{} from {} to {}", 
+                hostname, port, startTimeStr, endTimeStr);
+        
+        // Start with page 1
+        int pageNum = 1;
+        boolean hasMorePages = true;
+        
+        while (hasMorePages) {
+            String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
+                    + "/measurements?granularity=" + granularity 
+                    + "&start=" + startTimeStr
+                    + "&end=" + endTimeStr
+                    + "&pageNum=" + pageNum
+                    + "&itemsPerPage=500"  // Use maximum page size
+                    + "&" + metricParams;
+
+            try {
+                String responseBody = getResponseBody(url, API_VERSION_V2, projectId);
+                Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
+                
+                // Get measurements from this page
+                List<Map<String, Object>> pageMeasurements = (List<Map<String, Object>>) responseMap.get("measurements");
+                
+                if (pageMeasurements != null && !pageMeasurements.isEmpty()) {
+                    if (allMeasurements.isEmpty()) {
+                        // First page - just add all measurements
+                        allMeasurements.addAll(pageMeasurements);
+                        
+                        // Log the timespan of the first batch of data
+                        logTimeRangeInfo(pageMeasurements, processId);
+                    } else {
+                        // Subsequent pages - merge data points with matching metrics
+                        mergeDataPoints(allMeasurements, pageMeasurements);
+                    }
+                    
+                    // Check if there are more pages
+                    Object totalCount = responseMap.get("totalCount");
+                    Object resultsPerPage = responseMap.get("resultsPerPage");
+
+                    if (totalCount instanceof Integer && resultsPerPage instanceof Integer) {
+                        int total = (Integer) totalCount;
+                        int perPage = (Integer) resultsPerPage;
+                        int totalPages = (perPage > 0) ? (int) Math.ceil((double) total / perPage) : 0;
+                        
+                        hasMorePages = pageNum < totalPages;
+                        logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
+                                pageNum, totalPages, hasMorePages);
+                    } else {
+                        // If we can't determine pagination info, check if the page had FULL data
+                        int currentPageSize = countDataPoints(pageMeasurements);
+                        
+                        // If we got less than the max items per page, assume it's the last page
+                        // Or if we've fetched too many pages already, stop (as a safety measure)
+                        hasMorePages = currentPageSize >= 500 && pageNum < 50;
+                        
+                        // Log details about current page
+                        logger.debug("Page {} has {} data points, continuing: {}", 
+                                pageNum, currentPageSize, hasMorePages);
+                    }
+                } else {
+                    // No measurements on this page, we're done
+                    hasMorePages = false;
+                    logger.debug("No data on page {}, ending pagination", pageNum);
+                }
+                
+                // Move to next page
+                pageNum++;
+                
+            } catch (Exception e) {
+                logger.error("Failed to get measurements for {}:{} (page {}): {}", 
+                        hostname, port, pageNum, e.getMessage());
+                throw new AtlasApiException("Failed to get measurements", e);
+            }
+        }
+        
+        // Log the timespan of the final data
+        if (!allMeasurements.isEmpty()) {
+            for (Map<String, Object> measurement : allMeasurements) {
+                List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                String metricName = (String) measurement.get("name");
+                
+                if (dataPoints != null && dataPoints.size() > 1) {
+                    String firstTimestamp = (String) dataPoints.get(0).get("timestamp");
+                    String lastTimestamp = (String) dataPoints.get(dataPoints.size() - 1).get("timestamp");
+                    
+                    logger.info("Final data timespan for {}:{} metric {}: {} to {} ({} points)", 
+                            hostname, port, metricName, firstTimestamp, lastTimestamp, dataPoints.size());
+                }
+            }
+        }
+        
+        return allMeasurements;
+    }
 
     /**
      * Helper method to count total data points in a page
