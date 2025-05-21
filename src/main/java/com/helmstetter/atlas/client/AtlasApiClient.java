@@ -573,6 +573,81 @@ public class AtlasApiClient {
         }
     }
     
+    /**
+     * Get disk measurements using explicit start and end timestamps instead of period
+     * This method should be added to the AtlasApiClient class
+     * 
+     * @param projectId The project ID
+     * @param hostname The hostname of the process
+     * @param port The port of the process
+     * @param partitionName The name of the disk partition
+     * @param metrics List of metrics to retrieve
+     * @param granularity The granularity of the measurements (e.g., "PT10S" for 10 seconds)
+     * @param periodDays Number of days to look back from now
+     * @return List of measurements with data points
+     */
+    public List<Map<String, Object>> getDiskMeasurementsWithTimeRange(
+            String projectId, String hostname, int port, String partitionName,
+            List<String> metrics, String granularity, String period) {
+        
+        String processId = hostname + ":" + port;
+        String metricParams = formatMetricsParam(metrics);
+        
+        
+        
+        logger.info("Fetching disk measurements for {}:{} partition {} for period {}", 
+                hostname, port, partitionName, period);
+        
+        try {
+            String url = BASE_URL_V1 + "/groups/" + projectId + "/processes/" + processId + 
+                    "/disks/" + partitionName + "/measurements" +
+                    "?granularity=" + granularity + 
+                    "&period=" + period +
+                    "&" + metricParams;
+            
+            logger.debug("Calling disk measurements URL with timerange: {}", url);
+            String responseBody = getResponseBody(url, API_VERSION_V1, projectId);
+            
+            Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
+            List<Map<String, Object>> measurements = (List<Map<String, Object>>) responseMap.get("measurements");
+            
+            // Add additional logging for the data range we received
+            if (measurements != null && !measurements.isEmpty()) {
+                // Log total data points received
+                int totalDataPoints = 0;
+                for (Map<String, Object> measurement : measurements) {
+                    List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+                    if (dataPoints != null) {
+                        totalDataPoints += dataPoints.size();
+                        
+                        // Find actual date range in the data
+                        if (!dataPoints.isEmpty()) {
+                            String firstTimestamp = (String) dataPoints.get(0).get("timestamp");
+                            String lastTimestamp = (String) dataPoints.get(dataPoints.size() - 1).get("timestamp");
+                            
+                            logger.info("Retrieved data for {}:{} partition {} metric {}: {} to {} ({} points)", 
+                                    hostname, port, partitionName, 
+                                    measurement.get("name"), firstTimestamp, lastTimestamp, 
+                                    dataPoints.size());
+                        }
+                    }
+                }
+                
+                logger.info("Total disk data points for {}:{} partition {}: {}", 
+                        hostname, port, partitionName, totalDataPoints);
+            } else {
+                logger.warn("No disk measurements returned for {}:{} partition {}", 
+                        hostname, port, partitionName);
+            }
+            
+            return measurements;
+        } catch (Exception e) {
+            logger.error("Error getting disk measurements for {}:{} partition {}: {}", 
+                    hostname, port, partitionName, e.getMessage());
+            throw new AtlasApiException("Failed to get disk measurements", e);
+        }
+    }
+    
     public List<Map<String, Object>> getProcessMeasurements(
             String projectId, String hostname, int port, 
             List<String> metrics, String granularity, String period) {
@@ -671,23 +746,19 @@ public class AtlasApiClient {
     
     public List<Map<String, Object>> getProcessMeasurementsWithTimeRange(
             String projectId, String hostname, int port, 
-            List<String> metrics, String granularity, int periodDays) {
+            List<String> metrics, String granularity, String period) {
         
-        // Calculate start and end times
-        Instant endTime = Instant.now();
-        Instant startTime = endTime.minus(periodDays, ChronoUnit.DAYS);
+
         
         // Predict expected data points and pages
-        int expectedDataPoints = MetricsPagingCalculator.calculateExpectedDataPoints(
-            startTime, endTime, granularity);
+        int expectedDataPoints = MetricsPagingCalculator.calculateExpectedDataPoints(period, granularity);
         int pageSize = 500; // As specified in the method
         int expectedPages = MetricsPagingCalculator.calculateExpectedPages(
             expectedDataPoints, pageSize);
         
         logger.info("Metrics Collection Prediction for {}:{}", hostname, port);
-        logger.info("  Start Time: {}", startTime);
-        logger.info("  End Time: {}", endTime);
         logger.info("  Granularity: {}", granularity);
+        logger.info("  Period: {}", period);
         logger.info("  Expected Data Points: {}", expectedDataPoints);
         logger.info("  Page Size: {}", pageSize);
         logger.info("  Expected Pages: {}", expectedPages);
@@ -707,8 +778,7 @@ public class AtlasApiClient {
         while (hasMorePages) {
             String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
                     + "/measurements?granularity=" + granularity 
-                    + "&start=" + startTime
-                    + "&end=" + endTime
+                    + "&period=" + period
                     + "&pageNum=" + pageNum
                     + "&itemsPerPage=" + pageSize
                     + "&" + metricParams;
@@ -779,7 +849,7 @@ public class AtlasApiClient {
         
         // Validate against expectations
         MetricsPagingCalculator.validateDataCollection(
-            startTime, endTime, granularity, pageSize, 
+            period, granularity, pageSize, 
             totalPagesProcessed, totalDataPointsCollected
         );
         
