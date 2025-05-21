@@ -7,10 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -287,41 +283,35 @@ public class MetricsCollector {
             
             result.setProcessCount(filteredProcesses.size());
             
-            // Process each MongoDB instance
+            // Process each MongoDB instance sequentially
             int processedCount = 0;
             
-            // Use parallel processing if we have many processes
-            if (filteredProcesses.size() > 5) {
-                collectProcessesInParallel(projectName, projectId, filteredProcesses, result);
-            } else {
-                // Sequential processing for fewer processes
-                for (Map<String, Object> process : filteredProcesses) {
-                    String hostname = (String) process.get("hostname");
-                    int port = (int) process.get("port");
+            for (Map<String, Object> process : filteredProcesses) {
+                String hostname = (String) process.get("hostname");
+                int port = (int) process.get("port");
+                
+                try {
+                    // Collect system metrics
+                    int systemPoints = collectSystemMetrics(projectName, projectId, hostname, port, result);
+                    result.addDataPointsCollected(systemPoints);
                     
-                    try {
-                        // Collect system metrics
-                        int systemPoints = collectSystemMetrics(projectName, projectId, hostname, port, result);
-                        result.addDataPointsCollected(systemPoints);
-                        
-                        // Collect disk metrics if requested
-                        if (metrics.stream().anyMatch(m -> m.startsWith("DISK_"))) {
-                            int diskPoints = collectDiskMetrics(projectName, projectId, hostname, port, result);
-                            result.addDataPointsCollected(diskPoints);
-                        }
-                        
-                        // Log progress periodically
-                        processedCount++;
-                        if (processedCount % 5 == 0 || processedCount == filteredProcesses.size()) {
-                            logger.info("Project {} progress: {} of {} processes complete ({}%)",
-                                    projectName, processedCount, filteredProcesses.size(),
-                                    Math.round((double) processedCount / filteredProcesses.size() * 100));
-                        }
-                    } catch (Exception e) {
-                        // Log error but continue with other processes
-                        logger.error("Error collecting metrics for process {}:{} in project {}: {}", 
-                                hostname, port, projectName, e.getMessage());
+                    // Collect disk metrics if requested
+                    if (metrics.stream().anyMatch(m -> m.startsWith("DISK_"))) {
+                        int diskPoints = collectDiskMetrics(projectName, projectId, hostname, port, result);
+                        result.addDataPointsCollected(diskPoints);
                     }
+                    
+                    // Log progress periodically
+                    processedCount++;
+                    if (processedCount % 5 == 0 || processedCount == filteredProcesses.size()) {
+                        logger.info("Project {} progress: {} of {} processes complete ({}%)",
+                                projectName, processedCount, filteredProcesses.size(),
+                                Math.round((double) processedCount / filteredProcesses.size() * 100));
+                    }
+                } catch (Exception e) {
+                    // Log error but continue with other processes
+                    logger.error("Error collecting metrics for process {}:{} in project {}: {}", 
+                            hostname, port, projectName, e.getMessage());
                 }
             }
             
@@ -330,81 +320,6 @@ public class MetricsCollector {
         }
         
         return result;
-    }
-    
-    /**
-     * Collect metrics for multiple processes in parallel
-     */
-    private void collectProcessesInParallel(String projectName, String projectId,
-            List<Map<String, Object>> processes, ProjectCollectionResult result) {
-        
-        logger.info("Using parallel collection for project {} with {} processes", 
-                projectName, processes.size());
-        
-        // Create a thread pool with a reasonable number of threads
-        int threadCount = Math.min(processes.size(), 10);
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        
-        try {
-            // Create collection tasks
-            List<Future<Integer>> futures = new ArrayList<>();
-            
-            for (Map<String, Object> process : processes) {
-                String hostname = (String) process.get("hostname");
-                int port = (int) process.get("port");
-                
-                // Create a collection task for this process
-                Callable<Integer> task = () -> {
-                    int totalPoints = 0;
-                    try {
-                        // Collect system metrics
-                        int systemPoints = collectSystemMetrics(projectName, projectId, hostname, port, result);
-                        totalPoints += systemPoints;
-                        
-                        // Collect disk metrics if requested
-                        if (metrics.stream().anyMatch(m -> m.startsWith("DISK_"))) {
-                            int diskPoints = collectDiskMetrics(projectName, projectId, hostname, port, result);
-                            totalPoints += diskPoints;
-                        }
-                    } catch (Exception e) {
-                        logger.error("Error collecting metrics for process {}:{} in project {}: {}", 
-                                hostname, port, projectName, e.getMessage());
-                    }
-                    return totalPoints;
-                };
-                
-                // Submit the task
-                futures.add(executor.submit(task));
-            }
-            
-            // Wait for all tasks to complete and collect results
-            int processedCount = 0;
-            int totalPoints = 0;
-            
-            for (Future<Integer> future : futures) {
-                try {
-                    int points = future.get();
-                    totalPoints += points;
-                    
-                    // Log progress periodically
-                    processedCount++;
-                    if (processedCount % 5 == 0 || processedCount == processes.size()) {
-                        logger.info("Project {} parallel progress: {} of {} processes complete ({}%)",
-                                projectName, processedCount, processes.size(),
-                                Math.round((double) processedCount / processes.size() * 100));
-                    }
-                } catch (Exception e) {
-                    logger.error("Error retrieving parallel collection result: {}", e.getMessage());
-                }
-            }
-            
-            // Add the total points collected
-            result.addDataPointsCollected(totalPoints);
-            
-        } finally {
-            // Shut down the executor
-            executor.shutdown();
-        }
     }
     
     /**
@@ -771,7 +686,7 @@ public class MetricsCollector {
         private int dataPointsStored;
         
         public ProjectCollectionResult(String projectName, String projectId) {
-        	this.projectName = projectName;
+            this.projectName = projectName;
             this.projectId = projectId;
             this.processCount = 0;
             this.dataPointsCollected = 0;

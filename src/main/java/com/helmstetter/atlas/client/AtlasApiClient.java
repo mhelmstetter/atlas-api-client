@@ -669,18 +669,6 @@ public class AtlasApiClient {
         return allMeasurements;
     }
     
-    /**
-     * Get process measurements using explicit start and end timestamps instead of period
-     * This gives more precise control over the time range and avoids potential issues with period interpretation
-     * 
-     * @param projectId The project ID
-     * @param hostname The hostname of the process
-     * @param port The port of the process
-     * @param metrics List of metrics to retrieve
-     * @param granularity The granularity of the measurements (e.g., "PT10S" for 10 seconds)
-     * @param periodDays Number of days to look back from now
-     * @return List of measurements with data points
-     */
     public List<Map<String, Object>> getProcessMeasurementsWithTimeRange(
             String projectId, String hostname, int port, 
             List<String> metrics, String granularity, int periodDays) {
@@ -708,6 +696,7 @@ public class AtlasApiClient {
         String metricParams = formatMetricsParam(metrics);
         String processId = hostname + ":" + port;
         
+        // Track total processed pages and data points
         int totalPagesProcessed = 0;
         int totalDataPointsCollected = 0;
         
@@ -733,10 +722,15 @@ public class AtlasApiClient {
                     (List<Map<String, Object>>) responseMap.get("measurements");
                 
                 if (pageMeasurements != null && !pageMeasurements.isEmpty()) {
+                    // Log detailed information about this page's data
+                    logResponseDataInfo(pageMeasurements, processId, pageNum);
+                    
                     // Add measurements
                     if (allMeasurements.isEmpty()) {
                         allMeasurements.addAll(pageMeasurements);
                     } else {
+                        // Before merging, log any potential overlaps in timestamp ranges
+                        checkAndLogTimestampOverlaps(allMeasurements, pageMeasurements, processId, pageNum);
                         mergeDataPoints(allMeasurements, pageMeasurements);
                     }
                     
@@ -790,6 +784,135 @@ public class AtlasApiClient {
         );
         
         return allMeasurements;
+    }
+
+    /**
+     * Check for timestamp overlaps between existing and new measurements
+     */
+    private void checkAndLogTimestampOverlaps(
+            List<Map<String, Object>> existingMeasurements, 
+            List<Map<String, Object>> newMeasurements,
+            String processId,
+            int pageNum) {
+        
+        // Create a map of measurement name to min/max timestamps for existing data
+        Map<String, TimeRangeInfo> existingRanges = new HashMap<>();
+        
+        for (Map<String, Object> measurement : existingMeasurements) {
+            String metricName = (String) measurement.get("name");
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+            
+            if (dataPoints != null && !dataPoints.isEmpty()) {
+                // Find min and max timestamps
+                Instant minTimestamp = null;
+                Instant maxTimestamp = null;
+                
+                for (Map<String, Object> dataPoint : dataPoints) {
+                    String timestampStr = (String) dataPoint.get("timestamp");
+                    
+                    if (timestampStr != null) {
+                        try {
+                            Instant timestamp = Instant.parse(timestampStr);
+                            
+                            if (minTimestamp == null || timestamp.isBefore(minTimestamp)) {
+                                minTimestamp = timestamp;
+                            }
+                            
+                            if (maxTimestamp == null || timestamp.isAfter(maxTimestamp)) {
+                                maxTimestamp = timestamp;
+                            }
+                        } catch (Exception e) {
+                            // Skip invalid timestamps
+                        }
+                    }
+                }
+                
+                if (minTimestamp != null && maxTimestamp != null) {
+                    existingRanges.put(metricName, new TimeRangeInfo(minTimestamp, maxTimestamp, dataPoints.size()));
+                }
+            }
+        }
+        
+        // Check for overlaps with new measurements
+        for (Map<String, Object> newMeasurement : newMeasurements) {
+            String metricName = (String) newMeasurement.get("name");
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) newMeasurement.get("dataPoints");
+            
+            if (dataPoints != null && !dataPoints.isEmpty() && existingRanges.containsKey(metricName)) {
+                TimeRangeInfo existingRange = existingRanges.get(metricName);
+                
+                // Find min and max timestamps for new data
+                Instant minTimestamp = null;
+                Instant maxTimestamp = null;
+                
+                for (Map<String, Object> dataPoint : dataPoints) {
+                    String timestampStr = (String) dataPoint.get("timestamp");
+                    
+                    if (timestampStr != null) {
+                        try {
+                            Instant timestamp = Instant.parse(timestampStr);
+                            
+                            if (minTimestamp == null || timestamp.isBefore(minTimestamp)) {
+                                minTimestamp = timestamp;
+                            }
+                            
+                            if (maxTimestamp == null || timestamp.isAfter(maxTimestamp)) {
+                                maxTimestamp = timestamp;
+                            }
+                        } catch (Exception e) {
+                            // Skip invalid timestamps
+                        }
+                    }
+                }
+                
+                if (minTimestamp != null && maxTimestamp != null) {
+                    // Check for overlap
+                    boolean hasOverlap = !(maxTimestamp.isBefore(existingRange.minTimestamp) || 
+                                          minTimestamp.isAfter(existingRange.maxTimestamp));
+                    
+                    if (hasOverlap) {
+                        logger.warn("TIMESTAMP OVERLAP DETECTED for {} on page {}", metricName, pageNum);
+                        logger.warn("  Existing range: {} to {} ({} points)", 
+                                existingRange.minTimestamp, existingRange.maxTimestamp, existingRange.dataPointCount);
+                        logger.warn("  New range: {} to {} ({} points)", 
+                                minTimestamp, maxTimestamp, dataPoints.size());
+                        
+                        // Count points in the overlap region
+                        int overlapCount = countPointsInRange(
+                                dataPoints, 
+                                existingRange.minTimestamp, 
+                                existingRange.maxTimestamp);
+                        
+                        logger.warn("  Approximately {} points in overlap region", overlapCount);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Count data points within a specific time range
+     */
+    private int countPointsInRange(List<Map<String, Object>> dataPoints, Instant startTime, Instant endTime) {
+        int count = 0;
+        
+        for (Map<String, Object> dataPoint : dataPoints) {
+            String timestampStr = (String) dataPoint.get("timestamp");
+            
+            if (timestampStr != null) {
+                try {
+                    Instant timestamp = Instant.parse(timestampStr);
+                    
+                    if (!timestamp.isBefore(startTime) && !timestamp.isAfter(endTime)) {
+                        count++;
+                    }
+                } catch (Exception e) {
+                    // Skip invalid timestamps
+                }
+            }
+        }
+        
+        return count;
     }
     
     /**
@@ -1131,6 +1254,126 @@ public class AtlasApiClient {
         stats.put("endpointStats", endpointStats);
         
         return stats;
+    }
+    
+    /**
+     * Add this method to the AtlasApiClient class to log detailed information
+     * about data points in API responses
+     */
+    private void logResponseDataInfo(List<Map<String, Object>> measurements, String processId, int pageNum) {
+        if (measurements == null || measurements.isEmpty()) {
+            logger.info("Page {} for {}: No measurements found", pageNum, processId);
+            return;
+        }
+        
+        int totalDataPoints = 0;
+        Map<String, TimeRangeInfo> metricRanges = new HashMap<>();
+        
+        // Process each measurement to collect stats
+        for (Map<String, Object> measurement : measurements) {
+            String metricName = (String) measurement.get("name");
+            List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+            
+            if (dataPoints != null && !dataPoints.isEmpty()) {
+                totalDataPoints += dataPoints.size();
+                
+                // Find min and max timestamps for this metric
+                Instant minTimestamp = null;
+                Instant maxTimestamp = null;
+                
+                for (Map<String, Object> dataPoint : dataPoints) {
+                    String timestampStr = (String) dataPoint.get("timestamp");
+                    
+                    if (timestampStr != null) {
+                        try {
+                            Instant timestamp = Instant.parse(timestampStr);
+                            
+                            if (minTimestamp == null || timestamp.isBefore(minTimestamp)) {
+                                minTimestamp = timestamp;
+                            }
+                            
+                            if (maxTimestamp == null || timestamp.isAfter(maxTimestamp)) {
+                                maxTimestamp = timestamp;
+                            }
+                        } catch (Exception e) {
+                            // Skip invalid timestamps
+                        }
+                    }
+                }
+                
+                // Store the time range info for this metric
+                if (minTimestamp != null && maxTimestamp != null) {
+                    TimeRangeInfo rangeInfo = new TimeRangeInfo(minTimestamp, maxTimestamp, dataPoints.size());
+                    metricRanges.put(metricName, rangeInfo);
+                }
+            }
+        }
+        
+        // Log overall statistics
+        logger.info("Page {} for {}: {} total data points across {} metrics", 
+                pageNum, processId, totalDataPoints, metricRanges.size());
+        
+        // Log per-metric statistics
+        for (Map.Entry<String, TimeRangeInfo> entry : metricRanges.entrySet()) {
+            TimeRangeInfo info = entry.getValue();
+            
+            // Calculate the expected number of data points based on the time range and granularity
+            long durationSeconds = ChronoUnit.SECONDS.between(info.minTimestamp, info.maxTimestamp);
+            long expectedPoints = calculateExpectedPoints(durationSeconds, "PT1M"); // Assuming PT1M granularity
+            double coverage = (double) info.dataPointCount / expectedPoints * 100.0;
+            
+            logger.info("  Metric {}: {} to {} ({} points, covering {}%)", 
+                    entry.getKey(), 
+                    info.minTimestamp, 
+                    info.maxTimestamp,
+                    info.dataPointCount,
+                    String.format("%.1f", coverage));
+            
+            // Warn if there's a significant deviation
+            if (coverage > 120) {
+                logger.warn("  Potential data overlap for {} on page {}: coverage {}% (expected {} points, got {})",
+                        entry.getKey(), pageNum, String.format("%.1f", coverage), expectedPoints, info.dataPointCount);
+            }
+        }
+    }
+
+    /**
+     * Helper class to track time range information for metrics
+     */
+    private static class TimeRangeInfo {
+        Instant minTimestamp;
+        Instant maxTimestamp;
+        int dataPointCount;
+        
+        public TimeRangeInfo(Instant minTimestamp, Instant maxTimestamp, int dataPointCount) {
+            this.minTimestamp = minTimestamp;
+            this.maxTimestamp = maxTimestamp;
+            this.dataPointCount = dataPointCount;
+        }
+    }
+
+    /**
+     * Calculate expected number of data points based on duration and granularity
+     */
+    private long calculateExpectedPoints(long durationSeconds, String granularity) {
+        long granularitySeconds;
+        
+        // Parse ISO-8601 duration format
+        if (granularity.equals("PT10S")) {
+            granularitySeconds = 10;
+        } else if (granularity.equals("PT1M") || granularity.equals("PT60S")) {
+            granularitySeconds = 60;
+        } else if (granularity.equals("PT5M") || granularity.equals("PT300S")) {
+            granularitySeconds = 300;
+        } else if (granularity.equals("PT1H") || granularity.equals("PT3600S")) {
+            granularitySeconds = 3600;
+        } else {
+            // Default to 1 minute if unknown
+            granularitySeconds = 60;
+        }
+        
+        // Calculate expected number of data points
+        return (durationSeconds / granularitySeconds) + 1; // +1 to include both endpoints
     }
     
     /**
