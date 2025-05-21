@@ -151,7 +151,7 @@ public class MetricsStorage {
      * @param measurements List of measurement data points
      * @return Number of new documents inserted
      */
-    public int storeMetrics(String projectName, String host, int port, 
+    public synchronized int storeMetrics(String projectName, String host, int port, 
                           String partition, String metric, List<Map<String, Object>> dataPoints) {
         
         if (dataPoints == null || dataPoints.isEmpty()) {
