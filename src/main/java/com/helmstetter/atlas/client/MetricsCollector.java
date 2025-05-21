@@ -23,7 +23,7 @@ public class MetricsCollector {
     private final AtlasApiClient apiClient;
     private final List<String> metrics;
     private final String period; // Kept for backward compatibility
-    private final int periodDays; // Period in days for explicit time range
+    //private final int periodDays; // Period in days for explicit time range
     private final String granularity;
     private final MetricsStorage metricsStorage;
     private final boolean storeMetrics;
@@ -68,11 +68,8 @@ public class MetricsCollector {
         this.storeMetrics = storeMetrics && metricsStorage != null;
         this.collectOnly = collectOnly;
         
-        // Parse period string to days - needed for time range calculations
-        this.periodDays = parsePeriodToDays(period);
-        
-        logger.info("Initialized metrics collector with {} metrics, period={} ({}d), granularity={}",
-                metrics.size(), period, periodDays, granularity);
+        logger.info("Initialized metrics collector with {} metrics, period={}, granularity={}",
+                metrics.size(), period, granularity);
         logger.info("Storage enabled: {}, Collect only mode: {}", this.storeMetrics, this.collectOnly);
         
         // Initialize timestamp caches if storage is enabled
@@ -345,7 +342,6 @@ public class MetricsCollector {
         
         try {
             // Determine optimal time range for this process based on stored data
-            int effectivePeriodDays = periodDays;
             Instant startTime = null;
             
             // If we're storing metrics, find the latest timestamp we have for this host 
@@ -378,41 +374,22 @@ public class MetricsCollector {
                     }
                 }
                 
-                // Use the host-specific timestamp if available, otherwise fall back to global
-                Instant oldestLastTimestamp = hostLastTimestamp != null ? hostLastTimestamp : globalLastTimestamp;
+                
                 
                 // Only adjust period if we found a valid last timestamp
-                if (oldestLastTimestamp != null) {
+                if (hostLastTimestamp != null) {
                     // Add a small overlap to ensure we don't miss any data (10 minutes)
-                    startTime = oldestLastTimestamp.minus(10, ChronoUnit.MINUTES);
+                    startTime = hostLastTimestamp.minus(10, ChronoUnit.MINUTES);
                     
                     // Calculate hours between start time and now
                     long hoursToFetch = ChronoUnit.HOURS.between(startTime, Instant.now());
                     
                     if (hoursToFetch < 1) {
                         logger.info("Process {}:{} - Last data from {} is very recent, skipping collection",
-                                hostname, port, oldestLastTimestamp);
+                                hostname, port, hostLastTimestamp);
                         // Skip if we have very recent data (less than an hour old)
                         return 0;
                     }
-                    
-                    // Calculate the effective period in days
-                    effectivePeriodDays = (int) Math.ceil((double) hoursToFetch / 24);
-                    
-                    logger.info("Process {}:{} - Last system data from {}, adjusted period to {} days ({} hours)",
-                            hostname, port, oldestLastTimestamp, effectivePeriodDays, hoursToFetch);
-                }
-                
-                // Apply Atlas availability limits regardless of whether we found timestamps
-                if (granularity.equals("PT10S")) {
-                    // 10s granularity data is only available for 24 hours
-                    effectivePeriodDays = Math.min(effectivePeriodDays, 1);
-                } else if (granularity.equals("PT1M") || granularity.equals("PT60S")) {
-                    // 1m granularity data is only available for 2 days
-                    effectivePeriodDays = Math.min(effectivePeriodDays, 2);
-                } else if (granularity.equals("PT5M") || granularity.equals("PT300S")) {
-                    // 5m granularity data is available for 7 days
-                    effectivePeriodDays = Math.min(effectivePeriodDays, 7);
                 }
             }
             
@@ -432,11 +409,11 @@ public class MetricsCollector {
                         startTime, endTime);
             } else {
                 // Use period days if we don't have a specific start time
-                logger.info("Fetching system metrics for {}:{} with period of {} days", 
-                        hostname, port, effectivePeriodDays);
+                logger.info("Fetching system metrics for {}:{} with period of {}", 
+                        hostname, port, period);
                 
                 measurements = apiClient.getProcessMeasurementsWithTimeRange(
-                        projectId, hostname, port, systemMetrics, granularity, effectivePeriodDays);
+                        projectId, hostname, port, systemMetrics, granularity, period);
             }
             
             if (measurements == null || measurements.isEmpty()) {
@@ -524,8 +501,6 @@ public class MetricsCollector {
                 String partitionName = (String) disk.get("partitionName");
                 
                 try {
-                    // Determine optimal time range for this partition
-                    int effectivePeriodDays = periodDays;
                     
                     // If we're storing metrics, find the latest timestamp we have for this partition
                     if (storeMetrics && metricsStorage != null) {
@@ -552,27 +527,20 @@ public class MetricsCollector {
                             // Calculate days between adjusted start time and now
                             long daysToFetch = ChronoUnit.DAYS.between(adjustedStartTime, Instant.now());
                             
-                            // Use the minimum of the requested period and the calculated period
-                            effectivePeriodDays = (int) Math.min(periodDays, daysToFetch + 1);
+                            logger.info("Process {}:{} partition {} - Last disk data from {}",
+                                    hostname, port, partitionName, oldestLastTimestamp);
                             
-                            logger.info("Process {}:{} partition {} - Last disk data from {}, adjusted period to {} days",
-                                    hostname, port, partitionName, oldestLastTimestamp, effectivePeriodDays);
-                            
-                            // If the effective period is very small, use a minimum period
-                            if (effectivePeriodDays < 1) {
-                                effectivePeriodDays = 1; // Minimum 1 day
-                            }
                         }
                     }
                     
                     // Get measurements for this disk partition using time range
-                    logger.info("Fetching disk metrics for {}:{} partition {} with period of {} days", 
-                            hostname, port, partitionName, effectivePeriodDays);
+                    logger.info("Fetching disk metrics for {}:{} partition {}", 
+                            hostname, port, partitionName);
                     
                     List<Map<String, Object>> measurements = 
                             apiClient.getDiskMeasurementsWithTimeRange(
                                     projectId, hostname, port, partitionName,
-                                    diskMetrics, granularity, effectivePeriodDays);
+                                    diskMetrics, granularity, period);
                     
                     if (measurements == null || measurements.isEmpty()) {
                         logger.warn("{} {}:{} partition {} -> No disk measurements found", 

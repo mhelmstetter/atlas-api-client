@@ -299,7 +299,7 @@ public class MetricsProcessor {
                 measurements = apiClient.getProcessMeasurementsWithTimeRange(
                         projectResult.getProjectId(), 
                         hostname, port, 
-                        systemMetrics, granularity, periodDays);
+                        systemMetrics, granularity, period);
             } else {
                 // Use standard period-based approach for shorter periods
                 measurements = apiClient.getProcessMeasurements(
