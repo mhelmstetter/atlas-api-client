@@ -685,20 +685,31 @@ public class AtlasApiClient {
             String projectId, String hostname, int port, 
             List<String> metrics, String granularity, int periodDays) {
         
-        List<Map<String, Object>> allMeasurements = new ArrayList<>();
-        String metricParams = formatMetricsParam(metrics);
-        String processId = hostname + ":" + port;
-        
         // Calculate start and end times
         Instant endTime = Instant.now();
         Instant startTime = endTime.minus(periodDays, ChronoUnit.DAYS);
         
-        // Format as ISO 8601 UTC timestamps
-        String endTimeStr = endTime.toString();
-        String startTimeStr = startTime.toString();
+        // Predict expected data points and pages
+        int expectedDataPoints = MetricsPagingCalculator.calculateExpectedDataPoints(
+            startTime, endTime, granularity);
+        int pageSize = 500; // As specified in the method
+        int expectedPages = MetricsPagingCalculator.calculateExpectedPages(
+            expectedDataPoints, pageSize);
         
-        logger.info("Fetching measurements for {}:{} from {} to {}", 
-                hostname, port, startTimeStr, endTimeStr);
+        logger.info("Metrics Collection Prediction for {}:{}", hostname, port);
+        logger.info("  Start Time: {}", startTime);
+        logger.info("  End Time: {}", endTime);
+        logger.info("  Granularity: {}", granularity);
+        logger.info("  Expected Data Points: {}", expectedDataPoints);
+        logger.info("  Page Size: {}", pageSize);
+        logger.info("  Expected Pages: {}", expectedPages);
+        
+        List<Map<String, Object>> allMeasurements = new ArrayList<>();
+        String metricParams = formatMetricsParam(metrics);
+        String processId = hostname + ":" + port;
+        
+        int totalPagesProcessed = 0;
+        int totalDataPointsCollected = 0;
         
         // Start with page 1
         int pageNum = 1;
@@ -707,10 +718,10 @@ public class AtlasApiClient {
         while (hasMorePages) {
             String url = BASE_URL_V2 + "/groups/" + projectId + "/processes/" + processId
                     + "/measurements?granularity=" + granularity 
-                    + "&start=" + startTimeStr
-                    + "&end=" + endTimeStr
+                    + "&start=" + startTime
+                    + "&end=" + endTime
                     + "&pageNum=" + pageNum
-                    + "&itemsPerPage=500"  // Use maximum page size
+                    + "&itemsPerPage=" + pageSize
                     + "&" + metricParams;
 
             try {
@@ -718,21 +729,25 @@ public class AtlasApiClient {
                 Map<String, Object> responseMap = parseResponse(responseBody, Map.class);
                 
                 // Get measurements from this page
-                List<Map<String, Object>> pageMeasurements = (List<Map<String, Object>>) responseMap.get("measurements");
+                List<Map<String, Object>> pageMeasurements = 
+                    (List<Map<String, Object>>) responseMap.get("measurements");
                 
                 if (pageMeasurements != null && !pageMeasurements.isEmpty()) {
+                    // Add measurements
                     if (allMeasurements.isEmpty()) {
-                        // First page - just add all measurements
                         allMeasurements.addAll(pageMeasurements);
-                        
-                        // Log the timespan of the first batch of data
-                        logTimeRangeInfo(pageMeasurements, processId);
                     } else {
-                        // Subsequent pages - merge data points with matching metrics
                         mergeDataPoints(allMeasurements, pageMeasurements);
                     }
                     
-                    // Check if there are more pages
+                    // Count data points in this page
+                    int pageDataPoints = countDataPoints(pageMeasurements);
+                    totalDataPointsCollected += pageDataPoints;
+                    totalPagesProcessed++;
+                    
+                    logger.debug("Page {} processed: {} data points", pageNum, pageDataPoints);
+                    
+                    // Determine if more pages exist
                     Object totalCount = responseMap.get("totalCount");
                     Object resultsPerPage = responseMap.get("resultsPerPage");
 
@@ -745,21 +760,12 @@ public class AtlasApiClient {
                         logger.debug("Pagination info: page {}/{}, hasMorePages: {}", 
                                 pageNum, totalPages, hasMorePages);
                     } else {
-                        // If we can't determine pagination info, check if the page had FULL data
-                        int currentPageSize = countDataPoints(pageMeasurements);
-                        
-                        // If we got less than the max items per page, assume it's the last page
-                        // Or if we've fetched too many pages already, stop (as a safety measure)
-                        hasMorePages = currentPageSize >= 500 && pageNum < 50;
-                        
-                        // Log details about current page
-                        logger.debug("Page {} has {} data points, continuing: {}", 
-                                pageNum, currentPageSize, hasMorePages);
+                        // Fallback to data-driven pagination
+                        hasMorePages = pageDataPoints >= pageSize && pageNum < expectedPages * 2;
                     }
                 } else {
-                    // No measurements on this page, we're done
+                    // No more data
                     hasMorePages = false;
-                    logger.debug("No data on page {}, ending pagination", pageNum);
                 }
                 
                 // Move to next page
@@ -772,8 +778,16 @@ public class AtlasApiClient {
             }
         }
         
-        // Log the timespan of the final data
-        logFinalDataTimespan(allMeasurements, hostname, port, startTimeStr, endTimeStr);
+        // Log final collection summary
+        logger.info("Final Collection Summary for {}:{}", hostname, port);
+        logger.info("  Total Pages Processed: {}", totalPagesProcessed);
+        logger.info("  Total Data Points Collected: {}", totalDataPointsCollected);
+        
+        // Validate against expectations
+        MetricsPagingCalculator.validateDataCollection(
+            startTime, endTime, granularity, pageSize, 
+            totalPagesProcessed, totalDataPointsCollected
+        );
         
         return allMeasurements;
     }
