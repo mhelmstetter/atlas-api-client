@@ -25,6 +25,7 @@ import com.mongodb.client.model.TimeSeriesOptions;
 
 /**
  * Handles storing Atlas metrics in a MongoDB timeseries collection
+ * Enhanced with better timestamp tracking for optimized metric collection
  */
 public class MetricsStorage {
     
@@ -83,9 +84,9 @@ public class MetricsStorage {
             
             // Create indexes for faster queries
             metricsCollection = database.getCollection(collectionName);
-            //metricsCollection.createIndex(Indexes.ascending("metadata.host", "metadata.metric"));
-            //metricsCollection.createIndex(Indexes.ascending("metadata.projectId"));
-            //metricsCollection.createIndex(Indexes.ascending("metadata.partition"));
+            metricsCollection.createIndex(Indexes.ascending("metadata.host", "metadata.metric"));
+            metricsCollection.createIndex(Indexes.ascending("metadata.projectName"));
+            metricsCollection.createIndex(Indexes.ascending("metadata.partition"));
         } else {
             logger.info("Using existing collection: {}", collectionName);
             metricsCollection = database.getCollection(collectionName);
@@ -255,23 +256,113 @@ public class MetricsStorage {
     }
     
     /**
+     * Get the latest timestamp for a specific metric across all hosts and projects
+     * 
+     * @param metric The metric name
+     * @return The latest timestamp, or EPOCH if no data found
+     */
+    public Instant getLatestTimestampForMetric(String metric) {
+        Document latest = metricsCollection.find(
+                Filters.eq("metadata.metric", metric))
+                .sort(Sorts.descending("timestamp"))
+                .first();
+        
+        if (latest != null) {
+            return latest.getDate("timestamp").toInstant();
+        }
+        
+        return Instant.EPOCH;
+    }
+    
+    /**
+     * Get the latest timestamp for a specific project and metric
+     * 
+     * @param projectName The project name
+     * @param metric The metric name
+     * @return The latest timestamp, or EPOCH if no data found
+     */
+    public Instant getLatestTimestampForProjectMetric(String projectName, String metric) {
+        Document latest = metricsCollection.find(
+                Filters.and(
+                    Filters.eq("metadata.projectName", projectName),
+                    Filters.eq("metadata.metric", metric)
+                ))
+                .sort(Sorts.descending("timestamp"))
+                .first();
+        
+        if (latest != null) {
+            return latest.getDate("timestamp").toInstant();
+        }
+        
+        return Instant.EPOCH;
+    }
+    
+    /**
+     * Get the latest timestamp for a specific host and metric
+     * 
+     * @param host The host identifier (hostname:port)
+     * @param metric The metric name
+     * @return The latest timestamp, or EPOCH if no data found
+     */
+    public Instant getLatestTimestampForHostMetric(String host, String metric) {
+        Document latest = metricsCollection.find(
+                Filters.and(
+                    Filters.eq("metadata.host", host),
+                    Filters.eq("metadata.metric", metric)
+                ))
+                .sort(Sorts.descending("timestamp"))
+                .first();
+        
+        if (latest != null) {
+            return latest.getDate("timestamp").toInstant();
+        }
+        
+        return Instant.EPOCH;
+    }
+    
+    /**
+     * Get the latest timestamp for a specific host, partition and metric
+     * 
+     * @param host The host identifier (hostname:port)
+     * @param partition The partition name 
+     * @param metric The metric name
+     * @return The latest timestamp, or EPOCH if no data found
+     */
+    public Instant getLatestTimestampForHostPartitionMetric(String host, String partition, String metric) {
+        Document latest = metricsCollection.find(
+                Filters.and(
+                    Filters.eq("metadata.host", host),
+                    Filters.eq("metadata.partition", partition),
+                    Filters.eq("metadata.metric", metric)
+                ))
+                .sort(Sorts.descending("timestamp"))
+                .first();
+        
+        if (latest != null) {
+            return latest.getDate("timestamp").toInstant();
+        }
+        
+        return Instant.EPOCH;
+    }
+    
+    /**
      * Get metrics from the timeseries collection
      * 
-     * @param projectId Optional Atlas project ID filter (can be null)
+     * @param projectName Optional project name filter (can be null)
      * @param host Optional hostname filter (can be null)
      * @param metric Optional metric name filter (can be null)
      * @param startTime Start time for the query
      * @param endTime End time for the query (can be null for 'now')
      * @return List of measurement documents
      */
-    public List<Document> getMetrics(String projectId, String host, String metric,
+    public List<Document> getMetrics(String projectName, String host, String metric,
                                     Instant startTime, Instant endTime) {
         
         // Build the filter
         List<org.bson.conversions.Bson> filters = new ArrayList<>();
         
-        if (projectId != null) {
-            filters.add(Filters.eq("metadata.projectId", projectId));
+        if (projectName != null) {
+            filters.add(Filters.eq("metadata.projectName", projectName));
         }
         
         if (host != null) {
@@ -297,11 +388,11 @@ public class MetricsStorage {
     /**
      * Get the start time of the earliest available data for the given filters
      */
-    public Instant getEarliestDataTime(String projectId, String host, String metric) {
+    public Instant getEarliestDataTime(String projectName, String host, String metric) {
         List<org.bson.conversions.Bson> filters = new ArrayList<>();
         
-        if (projectId != null) {
-            filters.add(Filters.eq("metadata.projectId", projectId));
+        if (projectName != null) {
+            filters.add(Filters.eq("metadata.projectName", projectName));
         }
         
         if (host != null) {
@@ -327,11 +418,11 @@ public class MetricsStorage {
     /**
      * Get the end time of the latest available data for the given filters
      */
-    public Instant getLatestDataTime(String projectId, String host, String metric) {
+    public Instant getLatestDataTime(String projectName, String host, String metric) {
         List<org.bson.conversions.Bson> filters = new ArrayList<>();
         
-        if (projectId != null) {
-            filters.add(Filters.eq("metadata.projectId", projectId));
+        if (projectName != null) {
+            filters.add(Filters.eq("metadata.projectName", projectName));
         }
         
         if (host != null) {

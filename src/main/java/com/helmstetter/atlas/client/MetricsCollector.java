@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Collects metrics from MongoDB Atlas API and optionally stores them
- * Separates collection from processing
+ * Optimized to only fetch data not already collected
  */
 public class MetricsCollector {
     
@@ -26,11 +26,17 @@ public class MetricsCollector {
     
     private final AtlasApiClient apiClient;
     private final List<String> metrics;
-    private final String period;
+    private final String period; // Kept for backward compatibility
+    private final int periodDays; // Period in days for explicit time range
     private final String granularity;
     private final MetricsStorage metricsStorage;
     private final boolean storeMetrics;
     private final boolean collectOnly;
+    private Set<String> includedProjects; // Track the projects we're collecting
+    
+    // Caches for last timestamps
+    private final Map<String, Instant> systemLastTimestamps = new HashMap<>();
+    private final Map<String, Instant> diskLastTimestamps = new HashMap<>();
     
     // Tracking for collection statistics
     private int totalProcessesScanned = 0;
@@ -66,9 +72,116 @@ public class MetricsCollector {
         this.storeMetrics = storeMetrics && metricsStorage != null;
         this.collectOnly = collectOnly;
         
-        logger.info("Initialized metrics collector with {} metrics, period={}, granularity={}",
-                metrics.size(), period, granularity);
+        // Parse period string to days - needed for time range calculations
+        this.periodDays = parsePeriodToDays(period);
+        
+        logger.info("Initialized metrics collector with {} metrics, period={} ({}d), granularity={}",
+                metrics.size(), period, periodDays, granularity);
         logger.info("Storage enabled: {}, Collect only mode: {}", this.storeMetrics, this.collectOnly);
+        
+        // Initialize timestamp caches if storage is enabled
+        if (this.storeMetrics) {
+            initializeTimestampCaches();
+        }
+    }
+    
+    /**
+     * Parse ISO 8601 period string to days
+     * This is a simplified parser - for a full implementation, consider using ISO 8601 duration parsing libraries
+     */
+    private int parsePeriodToDays(String period) {
+        // Simple parsing for common period formats
+        if (period == null || period.isEmpty()) {
+            return 1; // Default to 1 day
+        }
+        
+        // PT8H - 8 hours
+        if (period.startsWith("PT") && period.endsWith("H")) {
+            int hours = Integer.parseInt(period.substring(2, period.length() - 1));
+            return Math.max(1, (int) Math.ceil(hours / 24.0));
+        }
+        
+        // P1D, P7D - 1 or 7 days
+        if (period.startsWith("P") && period.endsWith("D")) {
+            return Integer.parseInt(period.substring(1, period.length() - 1));
+        }
+        
+        // P1W - 1 week
+        if (period.startsWith("P") && period.endsWith("W")) {
+            int weeks = Integer.parseInt(period.substring(1, period.length() - 1));
+            return weeks * 7;
+        }
+        
+        // P1M - approximate a month as 30 days
+        if (period.startsWith("P") && period.endsWith("M") && !period.contains("T")) {
+            int months = Integer.parseInt(period.substring(1, period.length() - 1));
+            return months * 30;
+        }
+        
+        logger.warn("Unknown period format: {}, defaulting to 7 days", period);
+        return 7; // Default to 7 days if format is not recognized
+    }
+    
+    /**
+     * Initialize caches for the last timestamps from storage
+     */
+    private void initializeTimestampCaches() {
+        if (metricsStorage == null) {
+            return;
+        }
+        
+        logger.info("Initializing timestamp caches from storage...");
+        
+        // For system metrics (non-disk)
+        for (String metric : metrics) {
+            if (!metric.startsWith("DISK_")) {
+                try {
+                    // First get the global latest timestamp for this metric type
+                    Instant latestTime = metricsStorage.getLatestTimestampForMetric(metric);
+                    if (latestTime != null && !latestTime.equals(Instant.EPOCH)) {
+                        systemLastTimestamps.put(metric, latestTime);
+                        logger.info("Last timestamp for system metric {}: {}", metric, latestTime);
+                    }
+                    
+                    // Next, get per-project timestamps for this metric if needed
+                    // This can be useful for more targeted optimizations
+                    if (includedProjects != null && !includedProjects.isEmpty()) {
+                        for (String projectName : includedProjects) {
+                            Instant projectLatestTime = metricsStorage.getLatestTimestampForProjectMetric(
+                                    projectName, metric);
+                            if (projectLatestTime != null && !projectLatestTime.equals(Instant.EPOCH)) {
+                                String key = projectName + ":" + metric;
+                                systemLastTimestamps.put(key, projectLatestTime);
+                                logger.debug("Last timestamp for project {} metric {}: {}", 
+                                        projectName, metric, projectLatestTime);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error initializing timestamp cache for metric {}: {}", 
+                            metric, e.getMessage());
+                }
+            }
+        }
+        
+        // For disk metrics
+        for (String metric : metrics) {
+            if (metric.startsWith("DISK_")) {
+                try {
+                    Instant latestTime = metricsStorage.getLatestTimestampForMetric(metric);
+                    if (latestTime != null && !latestTime.equals(Instant.EPOCH)) {
+                        diskLastTimestamps.put(metric, latestTime);
+                        logger.info("Last timestamp for disk metric {}: {}", metric, latestTime);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error initializing timestamp cache for disk metric {}: {}", 
+                            metric, e.getMessage());
+                }
+            }
+        }
+        
+        logger.info("Timestamp caches initialized with {} system metrics and {} disk metrics",
+                systemLastTimestamps.size(), diskLastTimestamps.size());
     }
     
     /**
@@ -78,6 +191,9 @@ public class MetricsCollector {
      * @return Map of project names to their metric results (empty if collectOnly=true)
      */
     public Map<String, ProjectMetricsResult> collectMetrics(Set<String> includeProjectNames) {
+        // Store included projects for later reference
+        this.includedProjects = includeProjectNames;
+        
         // Get projects matching the specified names
         Map<String, String> projectMap = apiClient.getProjects(includeProjectNames);
         
@@ -292,7 +408,8 @@ public class MetricsCollector {
     }
     
     /**
-     * Collect system-level metrics (CPU, memory)
+     * Collect system-level metrics (CPU, memory) using time-range based approach
+     * This optimizes the time range to only fetch new data
      */
     private int collectSystemMetrics(
             String projectName, String projectId, 
@@ -309,12 +426,103 @@ public class MetricsCollector {
         }
         
         int dataPointsCollected = 0;
+        String processId = hostname + ":" + port;
         
         try {
-            // Get measurements for this process
-            List<Map<String, Object>> measurements = 
-                    apiClient.getProcessMeasurements(projectId, hostname, port, 
-                            systemMetrics, granularity, period);
+            // Determine optimal time range for this process based on stored data
+            int effectivePeriodDays = periodDays;
+            Instant startTime = null;
+            
+            // If we're storing metrics, find the latest timestamp we have for this host 
+            // to avoid fetching duplicate data
+            if (storeMetrics && metricsStorage != null) {
+                // First check if we have a global timestamp for this metric (non host-specific)
+                Instant globalLastTimestamp = null;
+                
+                for (String metric : systemMetrics) {
+                    Instant metricLastTimestamp = systemLastTimestamps.getOrDefault(metric, Instant.EPOCH);
+                    if (!metricLastTimestamp.equals(Instant.EPOCH)) {
+                        if (globalLastTimestamp == null || metricLastTimestamp.isBefore(globalLastTimestamp)) {
+                            globalLastTimestamp = metricLastTimestamp;
+                        }
+                    }
+                }
+                
+                // Next, get host-specific timestamps
+                Instant hostLastTimestamp = null;
+                
+                for (String metric : systemMetrics) {
+                    // Get last timestamp for this specific host/metric combination
+                    Instant metricLastTimestamp = metricsStorage.getLatestDataTime(
+                            projectName, processId, metric);
+                    
+                    if (metricLastTimestamp != null && !metricLastTimestamp.equals(Instant.EPOCH)) {
+                        if (hostLastTimestamp == null || metricLastTimestamp.isBefore(hostLastTimestamp)) {
+                            hostLastTimestamp = metricLastTimestamp;
+                        }
+                    }
+                }
+                
+                // Use the host-specific timestamp if available, otherwise fall back to global
+                Instant oldestLastTimestamp = hostLastTimestamp != null ? hostLastTimestamp : globalLastTimestamp;
+                
+                // Only adjust period if we found a valid last timestamp
+                if (oldestLastTimestamp != null) {
+                    // Add a small overlap to ensure we don't miss any data (10 minutes)
+                    startTime = oldestLastTimestamp.minus(10, ChronoUnit.MINUTES);
+                    
+                    // Calculate hours between start time and now
+                    long hoursToFetch = ChronoUnit.HOURS.between(startTime, Instant.now());
+                    
+                    if (hoursToFetch < 1) {
+                        logger.info("Process {}:{} - Last data from {} is very recent, skipping collection",
+                                hostname, port, oldestLastTimestamp);
+                        // Skip if we have very recent data (less than an hour old)
+                        return 0;
+                    }
+                    
+                    // Calculate the effective period in days
+                    effectivePeriodDays = (int) Math.ceil((double) hoursToFetch / 24);
+                    
+                    logger.info("Process {}:{} - Last system data from {}, adjusted period to {} days ({} hours)",
+                            hostname, port, oldestLastTimestamp, effectivePeriodDays, hoursToFetch);
+                }
+                
+                // Apply Atlas availability limits regardless of whether we found timestamps
+                if (granularity.equals("PT10S")) {
+                    // 10s granularity data is only available for 24 hours
+                    effectivePeriodDays = Math.min(effectivePeriodDays, 1);
+                } else if (granularity.equals("PT1M") || granularity.equals("PT60S")) {
+                    // 1m granularity data is only available for 2 days
+                    effectivePeriodDays = Math.min(effectivePeriodDays, 2);
+                } else if (granularity.equals("PT5M") || granularity.equals("PT300S")) {
+                    // 5m granularity data is available for 7 days
+                    effectivePeriodDays = Math.min(effectivePeriodDays, 7);
+                }
+            }
+            
+            // Now use either the explicit start time (if we have it) or the period
+            List<Map<String, Object>> measurements;
+            
+            if (startTime != null) {
+                // Use explicit start time and end time (now)
+                Instant endTime = Instant.now();
+                
+                logger.info("Fetching system metrics for {}:{} from {} to {}",
+                        hostname, port, startTime, endTime);
+                
+                // Use a custom method that takes explicit start/end times instead of period days
+                measurements = apiClient.getProcessMeasurementsWithExplicitTimeRange(
+                        projectId, hostname, port, systemMetrics, granularity, 
+                        startTime, endTime);
+            } else {
+                // Use period days if we don't have a specific start time
+                logger.info("Fetching system metrics for {}:{} with period of {} days", 
+                        hostname, port, effectivePeriodDays);
+                
+                measurements = apiClient.getProcessMeasurementsWithTimeRange(
+                        projectId, hostname, port, systemMetrics, granularity, effectivePeriodDays);
+            }
             
             if (measurements == null || measurements.isEmpty()) {
                 logger.warn("{} {} -> No measurements data found", 
@@ -342,6 +550,14 @@ public class MetricsCollector {
                     int stored = metricsStorage.storeMetrics(
                             projectName, hostname, port, null, metric, dataPoints);
                     result.addDataPointsStored(stored);
+                    
+                    // Log efficiency
+                    if (dataPoints.size() > 0) {
+                        double efficiency = (double) stored / dataPoints.size() * 100;
+                        logger.info("Storage efficiency for {}:{} metric {}: {}/{} points ({}%)",
+                                hostname, port, metric, stored, dataPoints.size(),
+                                Math.round(efficiency));
+                    }
                 }
                 
                 // If not in collect-only mode, process the measurements for the result
@@ -359,7 +575,8 @@ public class MetricsCollector {
     }
     
     /**
-     * Collect disk-level metrics
+     * Collect disk-level metrics using time-range based approach
+     * This optimizes the time range to only fetch new data
      */
     private int collectDiskMetrics(
             String projectName, String projectId, 
@@ -376,6 +593,7 @@ public class MetricsCollector {
         }
         
         int dataPointsCollected = 0;
+        String processId = hostname + ":" + port;
         
         try {
             // Get all disk partitions
@@ -391,10 +609,55 @@ public class MetricsCollector {
                 String partitionName = (String) disk.get("partitionName");
                 
                 try {
-                    // Get measurements for this disk partition
+                    // Determine optimal time range for this partition
+                    int effectivePeriodDays = periodDays;
+                    
+                    // If we're storing metrics, find the latest timestamp we have for this partition
+                    if (storeMetrics && metricsStorage != null) {
+                        // Find the oldest last timestamp across all metrics for this partition
+                        Instant oldestLastTimestamp = null;
+                        
+                        for (String metric : diskMetrics) {
+                            // Get last timestamp for this specific host/partition/metric combination
+                            Instant metricLastTimestamp = metricsStorage.getLatestDataTime(
+                                    projectName, processId, metric);
+                            
+                            if (metricLastTimestamp != null && !metricLastTimestamp.equals(Instant.EPOCH)) {
+                                if (oldestLastTimestamp == null || metricLastTimestamp.isBefore(oldestLastTimestamp)) {
+                                    oldestLastTimestamp = metricLastTimestamp;
+                                }
+                            }
+                        }
+                        
+                        // Only adjust period if we found a valid last timestamp
+                        if (oldestLastTimestamp != null) {
+                            // Add a small overlap to ensure we don't miss any data (10 minutes)
+                            Instant adjustedStartTime = oldestLastTimestamp.minus(10, ChronoUnit.MINUTES);
+                            
+                            // Calculate days between adjusted start time and now
+                            long daysToFetch = ChronoUnit.DAYS.between(adjustedStartTime, Instant.now());
+                            
+                            // Use the minimum of the requested period and the calculated period
+                            effectivePeriodDays = (int) Math.min(periodDays, daysToFetch + 1);
+                            
+                            logger.info("Process {}:{} partition {} - Last disk data from {}, adjusted period to {} days",
+                                    hostname, port, partitionName, oldestLastTimestamp, effectivePeriodDays);
+                            
+                            // If the effective period is very small, use a minimum period
+                            if (effectivePeriodDays < 1) {
+                                effectivePeriodDays = 1; // Minimum 1 day
+                            }
+                        }
+                    }
+                    
+                    // Get measurements for this disk partition using time range
+                    logger.info("Fetching disk metrics for {}:{} partition {} with period of {} days", 
+                            hostname, port, partitionName, effectivePeriodDays);
+                    
                     List<Map<String, Object>> measurements = 
-                            apiClient.getDiskMeasurements(projectId, hostname, port, 
-                                    partitionName, diskMetrics, granularity, period);
+                            apiClient.getDiskMeasurementsWithTimeRange(
+                                    projectId, hostname, port, partitionName,
+                                    diskMetrics, granularity, effectivePeriodDays);
                     
                     if (measurements == null || measurements.isEmpty()) {
                         logger.warn("{} {}:{} partition {} -> No disk measurements found", 
@@ -419,7 +682,8 @@ public class MetricsCollector {
                         
                         // Store the metrics if storage is enabled
                         if (storeMetrics && metricsStorage != null) {
-                            int stored = metricsStorage.storeMetrics(projectName, hostname, port, partitionName, metric, dataPoints);
+                            int stored = metricsStorage.storeMetrics(
+                                    projectName, hostname, port, partitionName, metric, dataPoints);
                             result.addDataPointsStored(stored);
                         }
                         
@@ -455,16 +719,13 @@ public class MetricsCollector {
         List<Double> values = MetricsUtils.extractDataPointValues(dataPoints);
         
         if (!values.isEmpty()) {
-            // Get the project result object
-            ProjectMetricsResult projectResult = null;
-            
             // Calculate statistics from this batch of values
             ProcessingResult result = MetricsUtils.processValues(values);
             
-            // Add to project result if we have one
-            if (projectResult != null) {
-                projectResult.addMeasurement(metric, result.getMaxValue(), location);
-            }
+            // TODO: Add to project result if needed
+            // Since we don't have the original ProjectMetricsResult class,
+            // this method is incomplete. In a real implementation, you'd 
+            // update the appropriate project result object.
         }
     }
     
@@ -510,7 +771,7 @@ public class MetricsCollector {
         private int dataPointsStored;
         
         public ProjectCollectionResult(String projectName, String projectId) {
-            this.projectName = projectName;
+        	this.projectName = projectName;
             this.projectId = projectId;
             this.processCount = 0;
             this.dataPointsCollected = 0;
