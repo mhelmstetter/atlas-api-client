@@ -817,11 +817,6 @@ public class AtlasApiClient {
             }
         }
         
-        // Log final collection summary
-        logger.info("Final Collection Summary for {}:{}", hostname, port);
-        logger.info("  Total Pages Processed: {}", totalPagesProcessed);
-        logger.info("  Total Data Points Collected: {}", totalDataPointsCollected);
-        
         return allMeasurements;
     }
 

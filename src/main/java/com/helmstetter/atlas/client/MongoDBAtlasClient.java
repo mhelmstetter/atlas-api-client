@@ -18,10 +18,11 @@ import picocli.CommandLine.PropertiesDefaultProvider;
 
 /**
  * Main entry point for the MongoDB Atlas API client
- * Enhanced with metric storage and separation of collection from processing
+ * Enhanced with metric storage, collection, and reporting from stored data
  */
 @Command(name = "MongoDBAtlasClient", mixinStandardHelpOptions = true, 
-    description = "MongoDB Atlas API client", defaultValueProvider = PropertiesDefaultProvider.class)
+    description = "MongoDB Atlas API client with storage and reporting capabilities", 
+    defaultValueProvider = PropertiesDefaultProvider.class)
 public class MongoDBAtlasClient implements Callable<Integer> {
     
     private static final Logger logger = LoggerFactory.getLogger(MongoDBAtlasClient.class);
@@ -74,7 +75,7 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--darkMode" }, description = "Enable dark mode for charts and HTML", required = false, defaultValue = "true")
     private boolean darkMode;
     
-    // New options for metrics storage
+    // Storage options
     @Option(names = { "--storeMetrics" }, description = "Store metrics in MongoDB", required = false, defaultValue = "false")
     private boolean storeMetrics;
     
@@ -90,21 +91,38 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     @Option(names = { "--mongodbCollection" }, description = "MongoDB collection name for metrics storage", required = false, defaultValue = "metrics")
     private String mongodbCollection;
     
+    // NEW: Reporting options
+    @Option(names = { "--reportFromStorage" }, description = "Generate report from stored data instead of API", required = false, defaultValue = "false")
+    private boolean reportFromStorage;
+    
+    @Option(names = { "--dataAvailabilityReport" }, description = "Generate data availability report", required = false, defaultValue = "false")
+    private boolean dataAvailabilityReport;
+    
     // Service components
     private AtlasApiClient apiClient;
     private MetricsStorage metricsStorage;
     private MetricsCollector metricsCollector;
     private MetricsProcessor metricsProcessor;
+    private MetricsReporter metricsReporter;
     
     @Override
     public Integer call() throws Exception {
-        // Initialize the API client (with reduced debug level)
-        this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, 0);
         
-        // Initialize metrics storage if enabled
-        if (storeMetrics) {
+        // Validate options
+        if (reportFromStorage && (mongodbUri == null || mongodbUri.isEmpty())) {
+            logger.error("MongoDB URI is required when --reportFromStorage is enabled");
+            return 1;
+        }
+        
+        if (!reportFromStorage && (apiPublicKey == null || apiPrivateKey == null)) {
+            logger.error("Atlas API credentials are required when not using --reportFromStorage");
+            return 1;
+        }
+        
+        // Initialize metrics storage if needed
+        if (storeMetrics || reportFromStorage || dataAvailabilityReport) {
             if (mongodbUri == null || mongodbUri.isEmpty()) {
-                logger.error("MongoDB URI is required when --storeMetrics is enabled");
+                logger.error("MongoDB URI is required for storage operations");
                 return 1;
             }
             
@@ -118,61 +136,116 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             }
         }
         
-        // Initialize the metrics collector with storage option
-        this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
-                metricsStorage, storeMetrics, collectOnly);
+        // Initialize API client if not using storage-only mode
+        if (!reportFromStorage) {
+            this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, 0);
+        }
         
-        // Collect metrics for all projects
-        Map<String, ProjectMetricsResult> results = metricsCollector.collectMetrics(includeProjectNames);
+        Map<String, ProjectMetricsResult> results = null;
         
-        // If in collect-only mode, we're done
-        if (collectOnly) {
-            logger.info("Collection complete. Skipping processing and visualization in collect-only mode.");
+        // Data availability report mode
+        if (dataAvailabilityReport) {
+            logger.info("Generating data availability report...");
+            this.metricsReporter = new MetricsReporter(metricsStorage, metrics, analyzePatterns);
+            metricsReporter.generateDataAvailabilityReport(includeProjectNames);
             
-            // Close the metrics storage if used
+            // Close storage and exit
             if (metricsStorage != null) {
                 metricsStorage.close();
             }
-            
             return 0;
         }
         
-        // Initialize the metrics processor with pattern analysis option if we're not in collect-only mode
-        this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
+        // Report from storage mode
+        if (reportFromStorage) {
+            logger.info("Generating report from stored data...");
+            
+            this.metricsReporter = new MetricsReporter(metricsStorage, metrics, analyzePatterns);
+            results = metricsReporter.generateProjectMetricsReport(includeProjectNames, period);
+            
+            // Generate visualizations from stored data if pattern analysis is enabled
+            if (analyzePatterns) {
+                logger.info("Generating visualizations from stored data...");
+                StorageVisualReporter storageReporter = new StorageVisualReporter(
+                        metricsStorage, chartOutputDir, chartWidth, chartHeight, darkMode);
+                
+                // Generate charts for each project and metric
+                for (ProjectMetricsResult projectResult : results.values()) {
+                    logger.info("Generating charts from storage for project: {}", projectResult.getProjectName());
+                    for (String metric : projectResult.getMetrics()) {
+                        if (projectResult.hasMetricData(metric)) {
+                            storageReporter.generateCombinedMetricChart(projectResult, metric, period);
+                        }
+                    }
+                }
+                
+                // Generate HTML index
+                if (generateHtmlIndex) {
+                    logger.info("Generating HTML index from stored data");
+                    storageReporter.createHtmlIndex(results);
+                }
+                
+                logger.info("Visualizations from stored data generated in directory: {}", chartOutputDir);
+            }
+        } 
+        // API-based collection and processing mode
+        else {
+            // Initialize the metrics collector with storage option
+            this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
+                    metricsStorage, storeMetrics, collectOnly);
+            
+            // Collect metrics for all projects
+            results = metricsCollector.collectMetrics(includeProjectNames);
+            
+            // If in collect-only mode, we're done
+            if (collectOnly) {
+                logger.info("Collection complete. Skipping processing and visualization in collect-only mode.");
+                
+                // Close the metrics storage if used
+                if (metricsStorage != null) {
+                    metricsStorage.close();
+                }
+                
+                return 0;
+            }
+            
+            // Initialize the metrics processor with pattern analysis option if we're not in collect-only mode
+            this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
+            
+            // Generate visualizations if pattern analysis is enabled
+            if (analyzePatterns) {
+                // Initialize PatternVisualReporter with dark mode option
+                PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
+                
+                // Generate combined charts for each project and metric
+                for (ProjectMetricsResult projectResult : results.values()) {
+                    logger.info("Generating charts for project: {}", projectResult.getProjectName());
+                    for (String metric : projectResult.getMetrics()) {
+                        reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
+                    }
+                }
+                
+                // Generate HTML index if requested
+                if (generateHtmlIndex) {
+                    logger.info("Generating HTML index");
+                    reporter.createHtmlIndex(results);
+                }
+                
+                logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
+                        chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");
+            }
+        }
         
-        // Export to CSV if filename was provided
-        if (exportCsvFilename != null && !exportCsvFilename.isEmpty()) {
+        // Export to CSV if filename was provided and we have results
+        if (results != null && exportCsvFilename != null && !exportCsvFilename.isEmpty()) {
             CsvExporter exporter = new CsvExporter(metrics, analyzePatterns);
             exporter.exportProjectMetricsToCSV(results, exportCsvFilename);
         }
         
         // Export pattern analysis to CSV if enabled and filename was provided
-        if (analyzePatterns && exportPatternsCsvFilename != null && !exportPatternsCsvFilename.isEmpty()) {
+        if (results != null && analyzePatterns && exportPatternsCsvFilename != null && !exportPatternsCsvFilename.isEmpty()) {
             CsvExporter exporter = new CsvExporter(metrics);
             exporter.exportPatternAnalysisToCSV(results, exportPatternsCsvFilename);
-        }
-        
-        // Generate visualizations if pattern analysis is enabled
-        if (analyzePatterns) {
-            // Initialize PatternVisualReporter with dark mode option
-            PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
-            
-            // Generate combined charts for each project and metric
-            for (ProjectMetricsResult projectResult : results.values()) {
-                logger.info("Generating charts for project: {}", projectResult.getProjectName());
-                for (String metric : projectResult.getMetrics()) {
-                    reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
-                }
-            }
-            
-            // Generate HTML index if requested
-            if (generateHtmlIndex) {
-                logger.info("Generating HTML index");
-                reporter.createHtmlIndex(results);
-            }
-            
-            logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
-                    chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");
         }
         
         // Close the metrics storage if used
