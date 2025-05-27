@@ -142,11 +142,9 @@ public class MetricsStorage {
 	 * @param measurements List of measurement data points
 	 * @return Number of new documents inserted
 	 */
-	public synchronized int storeMetrics(String projectName, String host, int port, String partition, String metric,
+	public int storeMetrics(String projectName, String host, int port, String partition, String metric,
 			List<Map<String, Object>> dataPoints) {
 
-		debugDuplicateSkipping(projectName, host, port, partition, metric, dataPoints);
-		
 		if (dataPoints == null || dataPoints.isEmpty()) {
 			logger.debug("No data points to store for {}:{} metric {}", host, port, metric);
 			return 0;
@@ -283,51 +281,6 @@ public class MetricsStorage {
 
 		return newPoints;
 	}
-	
-	public void debugDuplicateSkipping(
-		    String projectName, String host, int port, 
-		    String partition, String metric, 
-		    List<Map<String, Object>> dataPoints) {
-		    
-		    String hostPort = host + ":" + port;
-		    String cacheKey = hostPort + ":" + metric;
-		    if (partition != null) {
-		        cacheKey += ":" + partition;
-		    }
-		    
-		    Instant lastTimestamp = lastTimestampCache.getOrDefault(cacheKey, Instant.EPOCH);
-		    
-		    logger.info("Debug Duplicate Skipping:");
-		    logger.info("  Cache Key: {}", cacheKey);
-		    logger.info("  Last Timestamp: {}", lastTimestamp);
-		    logger.info("  Total Data Points: {}", dataPoints.size());
-		    
-		    int actualDuplicates = 0;
-		    int timestampBeforeLastCount = 0;
-		    int timestampEqualLastCount = 0;
-		    
-		    for (Map<String, Object> dataPoint : dataPoints) {
-		        String timestampStr = (String) dataPoint.get("timestamp");
-		        Instant timestamp;
-		        try {
-		            timestamp = Instant.parse(timestampStr);
-		        } catch (DateTimeParseException e) {
-		            logger.warn("Failed to parse timestamp: {}", timestampStr);
-		            continue;
-		        }
-		        
-		        if (timestamp.isBefore(lastTimestamp)) {
-		            timestampBeforeLastCount++;
-		        }
-		        
-		        if (timestamp.equals(lastTimestamp)) {
-		            timestampEqualLastCount++;
-		        }
-		    }
-		    
-		    logger.info("  Timestamps before last: {}", timestampBeforeLastCount);
-		    logger.info("  Timestamps equal to last: {}", timestampEqualLastCount);
-		}
 
 	/**
 	 * Get the latest timestamp for a specific metric across all hosts and projects
