@@ -79,6 +79,7 @@ public class HtmlIndexGenerator {
     
     /**
      * Write HTML head section with styles
+     * Enhanced to properly size charts according to specified dimensions
      */
     private void writeHtmlHead(FileWriter writer) throws IOException {
         writer.write("<!DOCTYPE html>\n");
@@ -103,9 +104,22 @@ public class HtmlIndexGenerator {
             writer.write("    .timestamp { color: #999; font-size: 12px; margin-bottom: 20px; }\n");
         }
         
-        writer.write("    .all-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }\n");
-        writer.write("    .chart-img { width: 100%; height: auto; min-height: " + chartHeight + "px; }\n");
-        writer.write("    .chart-container { display: flex; justify-content: center; align-items: center; }\n");
+        // Calculate minimum column width based on chart dimensions plus padding
+        int minColumnWidth = chartWidth + 40; // Add padding for chart cell
+        
+        // Use the actual chart width for the grid layout instead of fixed 350px
+        writer.write(String.format("    .all-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(%dpx, 1fr)); gap: 15px; }\n", minColumnWidth));
+        
+        // Set explicit chart dimensions
+        writer.write(String.format("    .chart-img { width: %dpx; height: %dpx; max-width: 100%%; }\n", chartWidth, chartHeight));
+        writer.write("    .chart-container { display: flex; justify-content: center; align-items: center; overflow: hidden; }\n");
+        
+        // Add responsive behavior for smaller screens
+        writer.write("    @media (max-width: 768px) {\n");
+        writer.write("      .all-charts { grid-template-columns: 1fr; }\n");
+        writer.write("      .chart-img { width: 100%; height: auto; }\n");
+        writer.write("    }\n");
+        
         writer.write("  </style>\n");
         writer.write("</head>\n");
         writer.write("<body>\n");
@@ -131,9 +145,13 @@ public class HtmlIndexGenerator {
                 writer.write("    <div class='chart-cell'>\n");
                 writer.write("      <h2>" + projectName + "</h2>\n");
                 writer.write("      <div class='chart-container'>\n");
-                writer.write("        <object type='image/svg+xml' data='" + combinedChartFile + 
-                        "' alt='" + metric + " for " + projectName + "' class='chart-img' width='" + 
-                        chartWidth + "' height='" + chartHeight + "'>Your browser does not support SVG</object>\n");
+                
+                // Use explicit width and height attributes and ensure proper scaling
+                writer.write(String.format("        <object type='image/svg+xml' data='%s' " +
+                        "alt='%s for %s' class='chart-img' width='%d' height='%d'>" +
+                        "Your browser does not support SVG</object>\n", 
+                        combinedChartFile, metric, projectName, chartWidth, chartHeight));
+                
                 writer.write("      </div>\n");
                 writer.write("    </div>\n");
             }
