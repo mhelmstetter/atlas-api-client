@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api;
 
 import java.io.File;
 import java.util.List;
@@ -8,6 +8,15 @@ import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.charts.ApiVisualReporter;
+import com.mongodb.atlas.api.charts.StorageVisualReporter;
+import com.mongodb.atlas.api.csv.CsvExporter;
+import com.mongodb.atlas.api.csv.DetailedMetricsCsvExporter;
+import com.mongodb.atlas.api.metrics.MetricsCollector;
+import com.mongodb.atlas.api.metrics.MetricsReporter;
+import com.mongodb.atlas.api.metrics.MetricsStorage;
+import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;

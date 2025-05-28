@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.csv;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -8,7 +8,11 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.helmstetter.atlas.client.PatternAnalyzer.PatternType;
+import com.mongodb.atlas.api.metrics.PatternAnalyzer;
+import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
+import com.mongodb.atlas.api.metrics.PatternAnalyzer.PatternResult;
+import com.mongodb.atlas.api.metrics.PatternAnalyzer.PatternType;
+import com.mongodb.atlas.api.util.MetricsUtils;
 
 /**
  * Exports project metrics data to CSV format with improved formatting

@@ -1,12 +1,12 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.metrics;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.helmstetter.atlas.client.PatternAnalyzer.PatternResult;
-import com.helmstetter.atlas.client.PatternAnalyzer.PatternType;
+import com.mongodb.atlas.api.metrics.PatternAnalyzer.PatternResult;
+import com.mongodb.atlas.api.metrics.PatternAnalyzer.PatternType;
 
 /**
  * Container for project metrics results

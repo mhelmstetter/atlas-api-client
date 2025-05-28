@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.metrics;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;

@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.charts;
 
 import java.util.List;
 import java.util.Map;
@@ -7,6 +7,9 @@ import org.jfree.chart.JFreeChart;
 import org.jfree.data.time.TimeSeriesCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
 
 /**
  * Visual reporter that generates charts from MongoDB Atlas API data

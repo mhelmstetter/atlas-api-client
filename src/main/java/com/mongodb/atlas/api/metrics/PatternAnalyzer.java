@@ -1,19 +1,14 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.metrics;
 
-import java.io.FileWriter;
-import java.io.IOException;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.AtlasApiClient;
 
 /**
  * Analyzes time series data from MongoDB Atlas metrics to identify patterns

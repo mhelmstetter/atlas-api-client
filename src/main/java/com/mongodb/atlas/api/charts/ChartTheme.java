@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.charts;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -20,8 +20,6 @@ import org.jfree.data.time.TimeSeries;
 import org.jfree.data.time.TimeSeriesCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.helmstetter.atlas.client.BaseVisualReporter.ByteUnitFormatter;
 
 /**
  * Chart theme manager for consistent styling

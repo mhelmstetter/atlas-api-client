@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.charts;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -14,6 +14,8 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
 
 /**
  * Generates HTML index page for MongoDB Atlas metrics charts

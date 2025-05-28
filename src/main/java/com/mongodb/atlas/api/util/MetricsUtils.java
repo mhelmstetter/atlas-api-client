@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.util;
 
 import java.text.DecimalFormat;
 import java.time.Instant;
@@ -9,6 +9,8 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.metrics.ProcessingResult;
 
 /**
  * Utility class for metrics processing operations
