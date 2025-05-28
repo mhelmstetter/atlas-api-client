@@ -102,7 +102,6 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     private AtlasApiClient apiClient;
     private MetricsStorage metricsStorage;
     private MetricsCollector metricsCollector;
-    private MetricsProcessor metricsProcessor;
     private MetricsReporter metricsReporter;
     
     @Override
@@ -208,9 +207,6 @@ public class MongoDBAtlasClient implements Callable<Integer> {
                 
                 return 0;
             }
-            
-            // Initialize the metrics processor with pattern analysis option if we're not in collect-only mode
-            this.metricsProcessor = new MetricsProcessor(apiClient, metrics, period, granularity, analyzePatterns);
             
             // Generate visualizations if pattern analysis is enabled
             if (analyzePatterns) {
