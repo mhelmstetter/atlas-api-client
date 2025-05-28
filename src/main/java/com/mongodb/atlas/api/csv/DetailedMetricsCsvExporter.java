@@ -1,9 +1,8 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.csv;
 
 import java.io.FileWriter;
 import java.io.IOException;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +12,10 @@ import java.util.stream.Collectors;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.metrics.MetricsStorage;
+import com.mongodb.atlas.api.util.MetricsUtils;
 
 /**
  * Exports detailed metrics data to CSV format for individual projects

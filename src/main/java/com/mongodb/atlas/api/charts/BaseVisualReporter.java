@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.charts;
 
 import java.awt.Rectangle;
 import java.io.File;
@@ -24,6 +24,9 @@ import org.jfree.data.time.TimeSeriesCollection;
 import org.jfree.graphics2d.svg.SVGGraphics2D;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
+import com.mongodb.atlas.api.util.MetricsUtils;
 
 /**
  * Base class for visual reporters that generate SVG charts and HTML indexes

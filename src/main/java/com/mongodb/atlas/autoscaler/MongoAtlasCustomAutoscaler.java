@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.autoscaler;
 
 public class MongoAtlasCustomAutoscaler {
 

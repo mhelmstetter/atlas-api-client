@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.charts;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

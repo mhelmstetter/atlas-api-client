@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api.metrics;
 
 /**
  * Contains the result of processing a set of metric values

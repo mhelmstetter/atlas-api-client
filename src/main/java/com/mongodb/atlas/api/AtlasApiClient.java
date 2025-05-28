@@ -1,4 +1,4 @@
-package com.helmstetter.atlas.client;
+package com.mongodb.atlas.api;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
