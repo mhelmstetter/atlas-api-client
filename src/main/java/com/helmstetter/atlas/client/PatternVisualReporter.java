@@ -261,10 +261,22 @@ public class PatternVisualReporter {
             String period) {
         
         try {
-            // Get measurements for this process
-            List<Map<String, Object>> measurements = 
-                    apiClient.getProcessMeasurements(projectId, hostname, port,
-                            List.of(metricName), granularity, period);
+            // Apply same logic as MetricsProcessor for method selection
+            boolean useExplicitTimeRange = shouldUseExplicitTimeRange(period);
+            
+            List<Map<String, Object>> measurements;
+            
+            if (useExplicitTimeRange) {
+                // Use explicit timerange method for longer periods
+                measurements = apiClient.getProcessMeasurementsWithTimeRange(
+                        projectId, hostname, port,
+                        List.of(metricName), granularity, period);
+            } else {
+                // Use standard period-based method for shorter periods
+                measurements = apiClient.getProcessMeasurements(
+                        projectId, hostname, port,
+                        List.of(metricName), granularity, period);
+            }
             
             if (measurements != null && !measurements.isEmpty()) {
                 // Add this data to the combined chart
@@ -276,6 +288,63 @@ public class PatternVisualReporter {
             }
         } catch (Exception e) {
             logger.error("Error processing system metric data: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Determine if explicit time range should be used based on period
+     * This should match the logic in MetricsProcessor
+     */
+    private boolean shouldUseExplicitTimeRange(String period) {
+        try {
+            // Parse period and determine whether to use explicit timerange
+            int days = parsePeriodToDays(period);
+            
+            // Use explicit timerange if period is longer than 48 hours (threshold from MetricsProcessor)
+            return days * 24 > 48; // TIMERANGE_THRESHOLD_HOURS = 48
+        } catch (Exception e) {
+            logger.warn("Error parsing period {}, defaulting to period-based approach", period);
+            return false;
+        }
+    }
+
+    /**
+     * Parse period to days - should match MetricsProcessor logic  
+     */
+    private int parsePeriodToDays(String periodStr) {
+        try {
+            if (periodStr == null || periodStr.isEmpty()) {
+                logger.warn("No period specified, defaulting to 7 days");
+                return 7;
+            }
+            
+            // Use java.time.Duration for parsing ISO 8601 durations
+            java.time.Duration duration = java.time.Duration.parse(periodStr);
+            double days = duration.toHours() / 24.0;
+            
+            // Special case for Period format (P1D, P7D, etc.)
+            if (periodStr.startsWith("P") && !periodStr.contains("T")) {
+                try {
+                    java.time.Period period = java.time.Period.parse(periodStr);
+                    days = period.getDays();
+                    
+                    // Handle years and months approximately
+                    days += period.getYears() * 365;
+                    days += period.getMonths() * 30;
+                } catch (Exception e) {
+                    // If we can't parse as Period, fall back to Duration result
+                    logger.debug("Couldn't parse as Period, using Duration result: {}", days);
+                }
+            }
+            
+            // Round to nearest day, minimum 1
+            int roundedDays = Math.max(1, (int)Math.round(days));
+            logger.info("Parsed period {} to {} days for chart generation", periodStr, roundedDays);
+            return roundedDays;
+            
+        } catch (Exception e) {
+            logger.warn("Error parsing period {}, defaulting to 7 days: {}", periodStr, e.getMessage());
+            return 7;
         }
     }
     
@@ -295,13 +364,26 @@ public class PatternVisualReporter {
             // Get all disk partitions
             List<Map<String, Object>> disks = apiClient.getProcessDisks(projectId, hostname, port);
             
+            // Apply same logic as MetricsProcessor for method selection
+            boolean useExplicitTimeRange = shouldUseExplicitTimeRange(period);
+            int periodDays = parsePeriodToDays(period);
+            
             for (Map<String, Object> disk : disks) {
                 String partitionName = (String) disk.get("partitionName");
                 
-                // Get measurements for this disk
-                List<Map<String, Object>> measurements = 
-                        apiClient.getDiskMeasurements(projectId, hostname, port, partitionName,
-                                List.of(metricName), granularity, period);
+                List<Map<String, Object>> measurements;
+                
+                if (useExplicitTimeRange) {
+                    // Use explicit timerange method for longer periods
+                    measurements = apiClient.getDiskMeasurementsWithTimeRange(
+                            projectId, hostname, port, partitionName,
+                            List.of(metricName), granularity, periodDays);
+                } else {
+                    // Use standard period-based method for shorter periods  
+                    measurements = apiClient.getDiskMeasurements(
+                            projectId, hostname, port, partitionName,
+                            List.of(metricName), granularity, period);
+                }
                 
                 if (measurements != null && !measurements.isEmpty()) {
                     // Add this data to the combined chart

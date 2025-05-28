@@ -174,7 +174,7 @@ public class MongoDBAtlasClient implements Callable<Integer> {
                     logger.info("Generating charts from storage for project: {}", projectResult.getProjectName());
                     for (String metric : projectResult.getMetrics()) {
                         if (projectResult.hasMetricData(metric)) {
-                            storageReporter.generateCombinedMetricChart(projectResult, metric, period);
+                            storageReporter.generateCombinedMetricChart(projectResult, metric, period, null);
                         }
                     }
                 }
@@ -214,8 +214,8 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             
             // Generate visualizations if pattern analysis is enabled
             if (analyzePatterns) {
-                // Initialize PatternVisualReporter with dark mode option
-                PatternVisualReporter reporter = new PatternVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
+                // Initialize ApiVisualReporter with the new class hierarchy
+                ApiVisualReporter reporter = new ApiVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
                 
                 // Generate combined charts for each project and metric
                 for (ProjectMetricsResult projectResult : results.values()) {
