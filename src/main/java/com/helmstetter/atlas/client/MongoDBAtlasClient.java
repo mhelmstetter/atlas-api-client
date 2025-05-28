@@ -43,22 +43,30 @@ public class MongoDBAtlasClient implements Callable<Integer> {
         defaultValue = "SYSTEM_NORMALIZED_CPU_USER,SYSTEM_MEMORY_USED,SYSTEM_MEMORY_FREE,DISK_PARTITION_IOPS_TOTAL")
     private List<String> metrics;
     
-    @Option(names = { "--period" }, description = "time period to analyze (ISO 8601 duration format)", required = false, 
+    @Option(names = { "--period" }, description = "time period for data collection from API (ISO 8601 duration format)", required = false, 
         defaultValue = "PT8H")
     private String period;
+    
+    @Option(names = { "--reportPeriod" }, description = "time period for reporting from stored data (ISO 8601 duration format). If not specified, uses all available data.", required = false)
+    private String reportPeriod;
     
     @Option(names = { "--granularity" }, description = "measurement granularity (ISO 8601 duration format)", required = false, 
         defaultValue = "PT10S")
     private String granularity;
     
-    @Option(names = { "--exportCsvFilename" }, description = "Export project summary to CSV file", required = false)
-    private String exportCsvFilename;
+    // CHANGED: exportCsvFilename to exportCsv (boolean)
+    @Option(names = { "--exportCsv" }, description = "Export project summary to CSV file with default name", required = false, defaultValue = "false")
+    private boolean exportCsv;
     
     @Option(names = { "--analyzePatterns" }, description = "Enable pattern analysis", required = false, defaultValue = "false")
     private boolean analyzePatterns;
     
     @Option(names = { "--exportPatternsCsvFilename" }, description = "Export pattern analysis to CSV file", required = false)
     private String exportPatternsCsvFilename;
+    
+    // NEW: Export detailed metrics CSV for each project
+    @Option(names = { "--exportDetailedMetricsCsv" }, description = "Export detailed metrics CSV for each project", required = false, defaultValue = "false")
+    private boolean exportDetailedMetricsCsv;
     
     @Option(names = { "--chartOutputDir" }, description = "Directory for charts", required = false, defaultValue = "charts")
     private String chartOutputDir;
@@ -160,7 +168,16 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             logger.info("Generating report from stored data...");
             
             this.metricsReporter = new MetricsReporter(metricsStorage, metrics, analyzePatterns);
-            results = metricsReporter.generateProjectMetricsReport(includeProjectNames, period);
+            
+            // Use reportPeriod if specified, otherwise use all available data (null)
+            String effectiveReportPeriod = reportPeriod != null ? reportPeriod : null;
+            if (effectiveReportPeriod != null) {
+                logger.info("Using specified report period: {}", effectiveReportPeriod);
+            } else {
+                logger.info("Using all available data in storage for reporting");
+            }
+            
+            results = metricsReporter.generateProjectMetricsReport(includeProjectNames, effectiveReportPeriod);
             
             // Generate visualizations from stored data if pattern analysis is enabled
             if (analyzePatterns) {
@@ -173,7 +190,7 @@ public class MongoDBAtlasClient implements Callable<Integer> {
                     logger.info("Generating charts from storage for project: {}", projectResult.getProjectName());
                     for (String metric : projectResult.getMetrics()) {
                         if (projectResult.hasMetricData(metric)) {
-                            storageReporter.generateCombinedMetricChart(projectResult, metric, period, null);
+                            storageReporter.generateCombinedMetricChart(projectResult, metric, effectiveReportPeriod, null);
                         }
                     }
                 }
@@ -232,16 +249,51 @@ public class MongoDBAtlasClient implements Callable<Integer> {
             }
         }
         
-        // Export to CSV if filename was provided and we have results
-        if (results != null && exportCsvFilename != null && !exportCsvFilename.isEmpty()) {
+        // CHANGED: Export summary CSV with default filename
+        if (results != null && exportCsv) {
+            String defaultSummaryFilename = "atlas-metrics-summary.csv";
             CsvExporter exporter = new CsvExporter(metrics, analyzePatterns);
-            exporter.exportProjectMetricsToCSV(results, exportCsvFilename);
+            exporter.exportProjectMetricsToCSV(results, defaultSummaryFilename);
+            logger.info("Project summary exported to: {}", defaultSummaryFilename);
         }
         
         // Export pattern analysis to CSV if enabled and filename was provided
         if (results != null && analyzePatterns && exportPatternsCsvFilename != null && !exportPatternsCsvFilename.isEmpty()) {
             CsvExporter exporter = new CsvExporter(metrics);
             exporter.exportPatternAnalysisToCSV(results, exportPatternsCsvFilename);
+        }
+        
+        // NEW: Export detailed metrics CSV for each project
+        if (results != null && exportDetailedMetricsCsv) {
+            DetailedMetricsCsvExporter detailedExporter = new DetailedMetricsCsvExporter(
+                    metricsStorage != null ? metricsStorage : null, 
+                    apiClient, 
+                    metrics, 
+                    reportFromStorage ? (reportPeriod != null ? reportPeriod : null) : period,  // Use appropriate period
+                    granularity);
+            
+            for (ProjectMetricsResult projectResult : results.values()) {
+                String projectFilename = "atlas-metrics-detailed-" + 
+                    projectResult.getProjectName().replaceAll("[^a-zA-Z0-9]", "_") + ".csv";
+                
+                try {
+                    if (reportFromStorage && metricsStorage != null) {
+                        // Export from storage
+                        detailedExporter.exportProjectDetailedMetricsFromStorage(
+                            projectResult.getProjectName(), projectFilename);
+                    } else if (!reportFromStorage && apiClient != null) {
+                        // Export from API
+                        detailedExporter.exportProjectDetailedMetricsFromApi(
+                            projectResult.getProjectName(), projectResult.getProjectId(), projectFilename);
+                    }
+                    
+                    logger.info("Detailed metrics for project '{}' exported to: {}", 
+                        projectResult.getProjectName(), projectFilename);
+                } catch (Exception e) {
+                    logger.error("Failed to export detailed metrics for project '{}': {}", 
+                        projectResult.getProjectName(), e.getMessage());
+                }
+            }
         }
         
         // Close the metrics storage if used

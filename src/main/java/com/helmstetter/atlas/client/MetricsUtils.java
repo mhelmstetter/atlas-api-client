@@ -1,15 +1,22 @@
 package com.helmstetter.atlas.client;
 
 import java.text.DecimalFormat;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Utility class for metrics processing operations
  * Enhanced with better formatting for byte values and consistent unit display
  */
 public class MetricsUtils {
+	
+	private static final Logger logger = LoggerFactory.getLogger(MetricsUtils.class);
     
     // Formatter for numeric values
     private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,##0.##");
@@ -139,5 +146,30 @@ public class MetricsUtils {
         
         // Format the value and add unit
         return formatValue(displayValue) + getMetricUnit(metric);
+    }
+    
+    /**
+     * Calculate start time from period string
+     */
+    public static Instant calculateStartTime(Instant endTime, String period) {
+        if (period == null || period.isEmpty()) {
+            // This shouldn't happen, but return a reasonable default
+            return endTime.minus(7, ChronoUnit.DAYS);
+        }
+        
+        try {
+            // Use java.time.Duration for parsing ISO 8601 durations
+            java.time.Duration duration = java.time.Duration.parse(period);
+            return endTime.minus(duration);
+        } catch (Exception e) {
+            // Try Period format for day-based periods
+            try {
+                java.time.Period periodObj = java.time.Period.parse(period);
+                return endTime.minus(periodObj.getDays(), ChronoUnit.DAYS);
+            } catch (Exception e2) {
+                logger.warn("Could not parse period {}, defaulting to 7 days", period);
+                return endTime.minus(7, ChronoUnit.DAYS);
+            }
+        }
     }
 }
