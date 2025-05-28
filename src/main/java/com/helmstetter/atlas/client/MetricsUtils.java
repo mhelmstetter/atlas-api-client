@@ -149,6 +149,46 @@ public class MetricsUtils {
     }
     
     /**
+     * Parse period to days - consistent across all reporters
+     */
+    public static int parsePeriodToDays(String periodStr) {
+        try {
+            if (periodStr == null || periodStr.isEmpty()) {
+                logger.warn("No period specified, defaulting to 7 days");
+                return 7;
+            }
+            
+            // Use java.time.Duration for parsing ISO 8601 durations
+            java.time.Duration duration = java.time.Duration.parse(periodStr);
+            double days = duration.toHours() / 24.0;
+            
+            // Special case for Period format (P1D, P7D, etc.)
+            if (periodStr.startsWith("P") && !periodStr.contains("T")) {
+                try {
+                    java.time.Period period = java.time.Period.parse(periodStr);
+                    days = period.getDays();
+                    
+                    // Handle years and months approximately
+                    days += period.getYears() * 365;
+                    days += period.getMonths() * 30;
+                } catch (Exception e) {
+                    // If we can't parse as Period, fall back to Duration result
+                    logger.debug("Couldn't parse as Period, using Duration result: {}", days);
+                }
+            }
+            
+            // Round to nearest day, minimum 1
+            int roundedDays = Math.max(1, (int)Math.round(days));
+            logger.info("Parsed period {} to {} days", periodStr, roundedDays);
+            return roundedDays;
+            
+        } catch (Exception e) {
+            logger.warn("Error parsing period {}, defaulting to 7 days: {}", periodStr, e.getMessage());
+            return 7;
+        }
+    }
+    
+    /**
      * Calculate start time from period string
      */
     public static Instant calculateStartTime(Instant endTime, String period) {
