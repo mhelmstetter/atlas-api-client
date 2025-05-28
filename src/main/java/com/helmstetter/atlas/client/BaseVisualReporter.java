@@ -1,8 +1,5 @@
 package com.helmstetter.atlas.client;
 
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Font;
 import java.awt.Rectangle;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -11,9 +8,9 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
-import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -21,12 +18,6 @@ import java.util.Map;
 
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
-import org.jfree.chart.axis.DateAxis;
-import org.jfree.chart.axis.NumberAxis;
-import org.jfree.chart.plot.XYPlot;
-import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
-import org.jfree.chart.title.TextTitle;
-import org.jfree.chart.ui.RectangleInsets;
 import org.jfree.data.time.Millisecond;
 import org.jfree.data.time.TimeSeries;
 import org.jfree.data.time.TimeSeriesCollection;
@@ -37,6 +28,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Base class for visual reporters that generate SVG charts and HTML indexes
  * Contains common functionality shared between API-based and storage-based reporters
+ * Enhanced with data optimization and better date axis handling
  */
 public abstract class BaseVisualReporter {
     
@@ -59,6 +51,10 @@ public abstract class BaseVisualReporter {
     protected final Map<String, Double> metricMinValues = new HashMap<>();
     protected final boolean useConsistentScaling = true;
     
+    // Data optimization settings
+    private static final int MAX_POINTS_PER_SERIES = 2000; // Maximum points per time series
+    private static final int MIN_INTERVAL_SECONDS = 30; // Minimum interval between points in seconds
+    
     public BaseVisualReporter(String outputDirectory, int chartWidth, int chartHeight, boolean darkMode) {
         this.outputDirectory = outputDirectory;
         this.chartWidth = chartWidth;
@@ -66,7 +62,7 @@ public abstract class BaseVisualReporter {
         this.darkMode = darkMode;
         
         // Initialize theme, processors and generators
-        this.chartTheme = new ChartTheme(darkMode);
+        this.chartTheme = new ChartTheme(this, darkMode);
         this.svgProcessor = new SvgProcessor(chartWidth, chartHeight);
         this.htmlGenerator = new HtmlIndexGenerator(outputDirectory, chartWidth, chartHeight, darkMode);
         
@@ -139,18 +135,29 @@ public abstract class BaseVisualReporter {
     protected JFreeChart createChart(TimeSeriesCollection dataset, String metricName, 
             boolean isCpuMetric, boolean isMemoryMetric, boolean isBytesMetric) {
         
-        logger.info("Creating chart for {}: {} series with {} total data points", 
-            metricName, 
-            dataset.getSeriesCount(),
-            dataset.getSeries().stream()
+        // Calculate total data points before optimization
+        int totalPointsBefore = dataset.getSeries().stream()
                 .mapToInt(s -> ((TimeSeries)s).getItemCount())
-                .sum());
+                .sum();
+        
+        // Optimize the dataset to reduce visual clutter
+        TimeSeriesCollection optimizedDataset = optimizeDataset(dataset);
+        
+        int totalPointsAfter = optimizedDataset.getSeries().stream()
+                .mapToInt(s -> ((TimeSeries)s).getItemCount())
+                .sum();
+        
+        logger.info("Creating chart for {}: {} series, {} data points (optimized from {})", 
+            metricName, 
+            optimizedDataset.getSeriesCount(),
+            totalPointsAfter,
+            totalPointsBefore);
         
         JFreeChart chart = ChartFactory.createTimeSeriesChart(
                 metricName,          // chart title
                 null,                // x-axis label
                 null,                // y-axis label
-                dataset,             // data
+                optimizedDataset,    // data
                 false,               // no legend
                 false,               // no tooltips
                 false                // no URLs
@@ -160,6 +167,89 @@ public abstract class BaseVisualReporter {
         chartTheme.applyTo(chart, metricName, isCpuMetric, isMemoryMetric, isBytesMetric);
         
         return chart;
+    }
+    
+    /**
+     * Optimize dataset by reducing the number of data points while preserving visual fidelity
+     */
+    protected TimeSeriesCollection optimizeDataset(TimeSeriesCollection originalDataset) {
+        TimeSeriesCollection optimizedDataset = new TimeSeriesCollection();
+        
+        for (int i = 0; i < originalDataset.getSeriesCount(); i++) {
+            TimeSeries originalSeries = originalDataset.getSeries(i);
+            TimeSeries optimizedSeries = optimizeTimeSeries(originalSeries);
+            
+            if (optimizedSeries.getItemCount() > 0) {
+                optimizedDataset.addSeries(optimizedSeries);
+            }
+        }
+        
+        return optimizedDataset;
+    }
+    
+    /**
+     * Optimize a single time series by intelligently reducing data points
+     */
+    protected TimeSeries optimizeTimeSeries(TimeSeries originalSeries) {
+        if (originalSeries.getItemCount() <= MAX_POINTS_PER_SERIES) {
+            return originalSeries; // No optimization needed
+        }
+        
+        TimeSeries optimizedSeries = new TimeSeries(originalSeries.getKey());
+        
+        // Calculate the sampling interval to achieve target point count
+        int originalCount = originalSeries.getItemCount();
+        int targetInterval = Math.max(1, originalCount / MAX_POINTS_PER_SERIES);
+        
+        // Always include the first point
+        if (originalCount > 0) {
+            optimizedSeries.add(originalSeries.getDataItem(0));
+        }
+        
+        // Sample points at calculated intervals, but also preserve peaks and valleys
+        for (int i = targetInterval; i < originalCount - 1; i += targetInterval) {
+            // Check if this point is a local peak or valley
+            boolean isSignificant = isSignificantPoint(originalSeries, i);
+            
+            if (isSignificant || i % targetInterval == 0) {
+                optimizedSeries.add(originalSeries.getDataItem(i));
+            }
+        }
+        
+        // Always include the last point
+        if (originalCount > 1) {
+            optimizedSeries.add(originalSeries.getDataItem(originalCount - 1));
+        }
+        
+        logger.debug("Optimized series '{}' from {} to {} points ({}% reduction)", 
+                originalSeries.getKey(), 
+                originalCount, 
+                optimizedSeries.getItemCount(),
+                Math.round((1.0 - (double)optimizedSeries.getItemCount() / originalCount) * 100));
+        
+        return optimizedSeries;
+    }
+    
+    /**
+     * Determine if a point is significant (local peak, valley, or large change)
+     */
+    protected boolean isSignificantPoint(TimeSeries series, int index) {
+        if (index <= 0 || index >= series.getItemCount() - 1) {
+            return true; // End points are always significant
+        }
+        
+        double prevValue = series.getValue(index - 1).doubleValue();
+        double currentValue = series.getValue(index).doubleValue();
+        double nextValue = series.getValue(index + 1).doubleValue();
+        
+        // Check if it's a local peak or valley
+        boolean isPeak = currentValue > prevValue && currentValue > nextValue;
+        boolean isValley = currentValue < prevValue && currentValue < nextValue;
+        
+        // Check if there's a significant change (>10% from previous)
+        boolean isSignificantChange = Math.abs(currentValue - prevValue) / Math.max(Math.abs(prevValue), 1.0) > 0.1;
+        
+        return isPeak || isValley || isSignificantChange;
     }
     
     /**
@@ -343,160 +433,6 @@ public abstract class BaseVisualReporter {
             String metricName, 
             String period, 
             String granularity);
-    
-    /**
-     * Chart theme manager for consistent styling
-     */
-    protected class ChartTheme {
-        private final Color backgroundColor;
-        private final Color textColor;
-        private final Color gridLineColor;
-        private final Color[] seriesColors;
-        
-        public ChartTheme(boolean darkMode) {
-            if (darkMode) {
-                this.backgroundColor = new Color(30, 30, 30);
-                this.textColor = new Color(230, 230, 230);
-                this.gridLineColor = new Color(60, 60, 60);
-                this.seriesColors = new Color[] {
-                    new Color(0, 149, 255),     // Brighter blue
-                    new Color(255, 98, 37),     // Brighter red
-                    new Color(255, 200, 47),    // Brighter yellow
-                    new Color(177, 70, 194),    // Brighter purple
-                    new Color(132, 235, 52),    // Brighter green
-                    new Color(99, 217, 255),    // Brighter light blue
-                    new Color(255, 61, 61)      // Brighter dark red
-                };
-            } else {
-                this.backgroundColor = Color.white;
-                this.textColor = Color.black;
-                this.gridLineColor = Color.lightGray;
-                this.seriesColors = new Color[] {
-                    new Color(0, 114, 189),   // Blue
-                    new Color(217, 83, 25),   // Red
-                    new Color(237, 177, 32),  // Yellow
-                    new Color(126, 47, 142),  // Purple
-                    new Color(119, 172, 48),  // Green
-                    new Color(77, 190, 238),  // Light blue
-                    new Color(162, 20, 47)    // Dark red
-                };
-            }
-        }
-        
-        public void applyTo(JFreeChart chart, String metricName, boolean isCpuMetric, 
-                boolean isMemoryMetric, boolean isBytesMetric) {
-            // Completely eliminate chart padding
-            chart.setPadding(new RectangleInsets(0, 0, 0, 0));
-            
-            // Style the title
-            TextTitle title = chart.getTitle();
-            title.setFont(new Font("SansSerif", Font.BOLD, 11));
-            title.setPaint(textColor);
-            title.setMargin(new RectangleInsets(1, 0, 1, 0));
-            
-            // Set chart background
-            chart.setBackgroundPaint(backgroundColor);
-            
-            // Get the plot for customization
-            XYPlot plot = chart.getXYPlot();
-            
-            // Configure plot
-            configureXYPlot(plot, metricName, isCpuMetric, isMemoryMetric, isBytesMetric);
-        }
-        
-        private void configureXYPlot(XYPlot plot, String metricName, boolean isCpuMetric, 
-                boolean isMemoryMetric, boolean isBytesMetric) {
-            // Minimize plot insets
-            plot.setInsets(new RectangleInsets(1, 1, 1, 1));
-            
-            // Set colors
-            plot.setBackgroundPaint(backgroundColor);
-            plot.setDomainGridlinePaint(gridLineColor);
-            plot.setRangeGridlinePaint(gridLineColor);
-            
-            // Show gridlines
-            plot.setDomainGridlinesVisible(true);
-            plot.setRangeGridlinesVisible(true);
-            
-            // Configure series appearance
-            configureSeriesRenderer(plot);
-            
-            // Format date axis
-            configureDateAxis((DateAxis) plot.getDomainAxis());
-            
-            // Format value axis with metric-specific settings
-            configureValueAxis((NumberAxis) plot.getRangeAxis(), metricName, 
-                    isCpuMetric, isMemoryMetric, isBytesMetric);
-            
-            // Reduce space between plot area and axes
-            plot.setAxisOffset(new RectangleInsets(1, 1, 1, 1));
-        }
-        
-        private void configureSeriesRenderer(XYPlot plot) {
-            XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
-            for (int i = 0; i < plot.getDataset().getSeriesCount(); i++) {
-                Color lineColor = seriesColors[i % seriesColors.length];
-                renderer.setSeriesPaint(i, lineColor);
-                renderer.setSeriesStroke(i, new BasicStroke(1.0f));
-                renderer.setSeriesShapesVisible(i, false);
-            }
-            plot.setRenderer(renderer);
-        }
-        
-        private void configureDateAxis(DateAxis dateAxis) {
-            dateAxis.setDateFormatOverride(new SimpleDateFormat("HH:mm"));
-            dateAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
-            dateAxis.setTickLabelPaint(textColor);
-            dateAxis.setLabelPaint(textColor);
-            dateAxis.setLowerMargin(0.01);
-            dateAxis.setUpperMargin(0.01);
-        }
-        
-        private void configureValueAxis(NumberAxis valueAxis, String metricName, 
-                boolean isCpuMetric, boolean isMemoryMetric, boolean isBytesMetric) {
-            // Basic styling
-            valueAxis.setTickLabelFont(new Font("SansSerif", Font.PLAIN, 9));
-            valueAxis.setTickLabelPaint(textColor);
-            valueAxis.setLabelPaint(textColor);
-            
-            // Margins to prevent truncation
-            valueAxis.setLowerMargin(0.05);
-            valueAxis.setUpperMargin(0.10);
-            
-            // Custom number formatter
-            NumberFormat formatter;
-            
-            if (isBytesMetric) {
-                valueAxis.setNumberFormatOverride(new ByteUnitFormatter());
-            } else if (isMemoryMetric) {
-                formatter = new DecimalFormat("#,##0.##");
-                valueAxis.setNumberFormatOverride(formatter);
-                valueAxis.setLabel("GB");
-            } else {
-                formatter = new DecimalFormat("#,###.##");
-                valueAxis.setNumberFormatOverride(formatter);
-            }
-            
-            // Apply consistent scale if enabled
-            if (useConsistentScaling && metricMaxValues.containsKey(metricName)) {
-                valueAxis.setAutoRange(false);
-                double min = metricMinValues.getOrDefault(metricName, 0.0);
-                double max = metricMaxValues.get(metricName);
-                
-                if (isCpuMetric) {
-                    valueAxis.setRange(0.0, 100.0);
-                } else {
-                    valueAxis.setRange(min, max);
-                }
-            } else if (isCpuMetric) {
-                valueAxis.setAutoRange(false);
-                valueAxis.setRange(0.0, 100.0);
-            } else {
-                valueAxis.setAutoRange(true);
-                valueAxis.setAutoRangeIncludesZero(true);
-            }
-        }
-    }
     
     /**
      * Custom formatter for byte values
