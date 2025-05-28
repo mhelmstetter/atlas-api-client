@@ -48,7 +48,7 @@ public class StorageVisualReporter extends BaseVisualReporter {
         try {
             // Calculate time range
             Instant endTime = Instant.now();
-            Instant startTime = calculateStartTime(endTime, period);
+            Instant startTime = MetricsUtils.calculateStartTime(endTime, period);
             
             // Create dataset from stored data
             TimeSeriesCollection dataset = createDatasetFromStorage(

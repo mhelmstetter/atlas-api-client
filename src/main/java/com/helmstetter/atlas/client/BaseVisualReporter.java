@@ -320,102 +320,18 @@ public abstract class BaseVisualReporter {
     }
     
     /**
-     * Parse period to days - consistent across all reporters
-     */
-    protected int parsePeriodToDays(String periodStr) {
-        try {
-            if (periodStr == null || periodStr.isEmpty()) {
-                logger.warn("No period specified, defaulting to 7 days");
-                return 7;
-            }
-            
-            // Use java.time.Duration for parsing ISO 8601 durations
-            java.time.Duration duration = java.time.Duration.parse(periodStr);
-            double days = duration.toHours() / 24.0;
-            
-            // Special case for Period format (P1D, P7D, etc.)
-            if (periodStr.startsWith("P") && !periodStr.contains("T")) {
-                try {
-                    java.time.Period period = java.time.Period.parse(periodStr);
-                    days = period.getDays();
-                    
-                    // Handle years and months approximately
-                    days += period.getYears() * 365;
-                    days += period.getMonths() * 30;
-                } catch (Exception e) {
-                    // If we can't parse as Period, fall back to Duration result
-                    logger.debug("Couldn't parse as Period, using Duration result: {}", days);
-                }
-            }
-            
-            // Round to nearest day, minimum 1
-            int roundedDays = Math.max(1, (int)Math.round(days));
-            logger.info("Parsed period {} to {} days", periodStr, roundedDays);
-            return roundedDays;
-            
-        } catch (Exception e) {
-            logger.warn("Error parsing period {}, defaulting to 7 days: {}", periodStr, e.getMessage());
-            return 7;
-        }
-    }
-    
-    /**
      * Determine if explicit time range should be used based on period
      */
     protected boolean shouldUseExplicitTimeRange(String period) {
         try {
             // Parse period and determine whether to use explicit timerange
-            int days = parsePeriodToDays(period);
+            int days = MetricsUtils.parsePeriodToDays(period);
             
             // Use explicit timerange if period is longer than 48 hours
             return days * 24 > 48;
         } catch (Exception e) {
             logger.warn("Error parsing period {}, defaulting to period-based approach", period);
             return false;
-        }
-    }
-    
-    /**
-     * Calculate start time from period string
-     */
-    protected Instant calculateStartTime(Instant endTime, String period) {
-        try {
-            if (period == null || period.isEmpty()) {
-                logger.warn("No period specified, defaulting to 7 days");
-                return endTime.minus(7, ChronoUnit.DAYS);
-            }
-            
-            // Use java.time.Duration for parsing ISO 8601 durations
-            java.time.Duration duration = java.time.Duration.parse(period);
-            Instant startTime = endTime.minus(duration);
-            
-            logger.info("Calculated time range: {} to {} (period: {})", 
-                    startTime, endTime, period);
-            
-            return startTime;
-            
-        } catch (Exception e) {
-            // Try Period format for day-based periods (P1D, P7D, etc.)
-            try {
-                java.time.Period periodObj = java.time.Period.parse(period);
-                
-                // Calculate total days including years and months
-                long totalDays = periodObj.getDays();
-                totalDays += periodObj.getYears() * 365L;
-                totalDays += periodObj.getMonths() * 30L;
-                
-                Instant startTime = endTime.minus(totalDays, ChronoUnit.DAYS);
-                
-                logger.info("Calculated time range using Period: {} to {} (period: {}, {} days)", 
-                        startTime, endTime, period, totalDays);
-                
-                return startTime;
-                
-            } catch (Exception e2) {
-                logger.warn("Could not parse period {} (tried both Duration and Period), defaulting to 7 days. Errors: Duration={}, Period={}", 
-                        period, e.getMessage(), e2.getMessage());
-                return endTime.minus(7, ChronoUnit.DAYS);
-            }
         }
     }
     

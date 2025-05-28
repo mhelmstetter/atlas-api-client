@@ -79,43 +79,6 @@ public class MetricsCollector {
 	}
 
 	/**
-	 * Parse ISO 8601 period string to days This is a simplified parser - for a full
-	 * implementation, consider using ISO 8601 duration parsing libraries
-	 */
-	private int parsePeriodToDays(String period) {
-		// Simple parsing for common period formats
-		if (period == null || period.isEmpty()) {
-			return 1; // Default to 1 day
-		}
-
-		// PT8H - 8 hours
-		if (period.startsWith("PT") && period.endsWith("H")) {
-			int hours = Integer.parseInt(period.substring(2, period.length() - 1));
-			return Math.max(1, (int) Math.ceil(hours / 24.0));
-		}
-
-		// P1D, P7D - 1 or 7 days
-		if (period.startsWith("P") && period.endsWith("D")) {
-			return Integer.parseInt(period.substring(1, period.length() - 1));
-		}
-
-		// P1W - 1 week
-		if (period.startsWith("P") && period.endsWith("W")) {
-			int weeks = Integer.parseInt(period.substring(1, period.length() - 1));
-			return weeks * 7;
-		}
-
-		// P1M - approximate a month as 30 days
-		if (period.startsWith("P") && period.endsWith("M") && !period.contains("T")) {
-			int months = Integer.parseInt(period.substring(1, period.length() - 1));
-			return months * 30;
-		}
-
-		logger.warn("Unknown period format: {}, defaulting to 7 days", period);
-		return 7; // Default to 7 days if format is not recognized
-	}
-
-	/**
 	 * Initialize caches for the last timestamps from storage
 	 */
 	private void initializeTimestampCaches() {
