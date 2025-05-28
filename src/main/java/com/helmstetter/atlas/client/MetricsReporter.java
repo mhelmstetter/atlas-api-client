@@ -41,7 +41,7 @@ public class MetricsReporter {
      * Generate project metrics results from stored data
      * 
      * @param projectNames Set of project names to include in the report
-     * @param period Time period to analyze (e.g., "P7D", "PT24H")
+     * @param period Time period to analyze (e.g., "P7D", "PT24H"), or null to use all available data
      * @return Map of project names to their metric results
      */
     public Map<String, ProjectMetricsResult> generateProjectMetricsReport(
@@ -49,10 +49,18 @@ public class MetricsReporter {
         
         // Calculate time range
         Instant endTime = Instant.now();
-        Instant startTime = calculateStartTime(endTime, period);
+        Instant startTime;
         
-        logger.info("Generating metrics report for {} projects from {} to {}", 
-                projectNames.size(), startTime, endTime);
+        if (period != null) {
+            startTime = MetricsUtils.calculateStartTime(endTime, period);
+            logger.info("Generating metrics report for {} projects from {} to {}", 
+                    projectNames.size(), startTime, endTime);
+        } else {
+            // Use all available data - find the earliest timestamp across all projects and metrics
+            startTime = findEarliestDataTimestamp(projectNames);
+            logger.info("Generating metrics report for {} projects using all available data from {} to {}", 
+                    projectNames.size(), startTime, endTime);
+        }
         
         Map<String, ProjectMetricsResult> results = new HashMap<>();
         
@@ -86,6 +94,30 @@ public class MetricsReporter {
         }
         
         return results;
+    }
+    
+    /**
+     * Find the earliest data timestamp across all specified projects and metrics
+     */
+    private Instant findEarliestDataTimestamp(Set<String> projectNames) {
+        Instant earliestOverall = Instant.now(); // Start with current time
+        
+        for (String projectName : projectNames) {
+            for (String metric : metrics) {
+                try {
+                    Instant earliest = metricsStorage.getEarliestDataTime(projectName, null, metric);
+                    if (!earliest.equals(Instant.EPOCH) && earliest.isBefore(earliestOverall)) {
+                        earliestOverall = earliest;
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error finding earliest timestamp for project {} metric {}: {}", 
+                            projectName, metric, e.getMessage());
+                }
+            }
+        }
+        
+        logger.info("Earliest data timestamp found: {}", earliestOverall);
+        return earliestOverall;
     }
     
     /**
@@ -243,26 +275,6 @@ public class MetricsReporter {
         }
         
         return values;
-    }
-    
-    /**
-     * Calculate start time from period string
-     */
-    private Instant calculateStartTime(Instant endTime, String period) {
-        try {
-            // Use java.time.Duration for parsing ISO 8601 durations
-            java.time.Duration duration = java.time.Duration.parse(period);
-            return endTime.minus(duration);
-        } catch (Exception e) {
-            // Try Period format for day-based periods
-            try {
-                java.time.Period periodObj = java.time.Period.parse(period);
-                return endTime.minus(periodObj.getDays(), ChronoUnit.DAYS);
-            } catch (Exception e2) {
-                logger.warn("Could not parse period {}, defaulting to 7 days", period);
-                return endTime.minus(7, ChronoUnit.DAYS);
-            }
-        }
     }
     
     /**
