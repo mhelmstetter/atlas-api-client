@@ -73,11 +73,14 @@ public class DetailedMetricsCsvExporter {
                 return;
             }
             
+            // Check if we have any disk metrics to determine if we need partition column
+            boolean hasDiskMetrics = metrics.stream().anyMatch(m -> m.startsWith("DISK_"));
+            
             // Write CSV header
-            writeHeader(writer);
+            writeHeader(writer, hasDiskMetrics);
             
             // Write data rows
-            int totalRows = writeDataRows(writer, allData);
+            int totalRows = writeDataRows(writer, allData, hasDiskMetrics);
             
             logger.info("Exported {} rows of detailed metrics for project '{}' to {}", 
                     totalRows, projectName, filename);
@@ -112,10 +115,14 @@ public class DetailedMetricsCsvExporter {
                 String host = metadata.getString("host");
                 String partition = metadata.getString("partition");
                 
-                // Create location key (host + partition if available)
-                String locationKey = host != null ? host : "unknown";
+                // Create location key
+                String locationKey;
                 if (partition != null && !partition.isEmpty()) {
-                    locationKey += ":" + partition;
+                    // For disk metrics: host:port:partition
+                    locationKey = host + ":" + partition;
+                } else {
+                    // For system metrics: just host:port
+                    locationKey = host;
                 }
                 
                 // Get value
@@ -138,9 +145,13 @@ public class DetailedMetricsCsvExporter {
     /**
      * Write the CSV header row
      */
-    private void writeHeader(FileWriter writer) throws IOException {
+    private void writeHeader(FileWriter writer, boolean includePartition) throws IOException {
         StringBuilder header = new StringBuilder();
-        header.append("Timestamp,Host,Partition");
+        header.append("Timestamp,Host");
+        
+        if (includePartition) {
+            header.append(",Partition");
+        }
         
         // Add normalized metric names as column headers
         for (String metric : metrics) {
@@ -154,8 +165,8 @@ public class DetailedMetricsCsvExporter {
     /**
      * Write all data rows
      */
-    private int writeDataRows(FileWriter writer, Map<String, Map<String, Map<String, Double>>> allData) 
-            throws IOException {
+    private int writeDataRows(FileWriter writer, Map<String, Map<String, Map<String, Double>>> allData, 
+                             boolean includePartition) throws IOException {
         int totalRows = 0;
         
         // Iterate through all timestamps and locations
@@ -172,20 +183,36 @@ public class DetailedMetricsCsvExporter {
                 // Timestamp
                 row.append("\"").append(timestamp).append("\",");
                 
-                // Parse location (host and partition)
-                String host = locationKey;
+                // Parse location key
+                String host;
                 String partition = "";
-                if (locationKey.contains(":")) {
-                    String[] parts = locationKey.split(":", 2);
-                    host = parts[0];
-                    partition = parts[1];
+                
+                if (includePartition && locationKey.contains(":")) {
+                    // Check if this is a disk metric with partition
+                    // For disk metrics, locationKey format is: host:port:partition
+                    String[] parts = locationKey.split(":", 3);
+                    if (parts.length >= 3) {
+                        // This is a disk metric: host:port:partition
+                        host = parts[0] + ":" + parts[1]; // Combine host:port
+                        partition = parts[2];
+                    } else {
+                        // This is a system metric: host:port
+                        host = locationKey;
+                        partition = "";
+                    }
+                } else {
+                    // System metric or no partition
+                    host = locationKey;
+                    partition = "";
                 }
                 
-                // Host
-                row.append("\"").append(host).append("\",");
+                // Host (includes port)
+                row.append("\"").append(host).append("\"");
                 
-                // Partition
-                row.append("\"").append(partition).append("\"");
+                // Partition column (only if we're including it)
+                if (includePartition) {
+                    row.append(",\"").append(partition).append("\"");
+                }
                 
                 // Add metric values in the same order as the header
                 for (String metric : metrics) {
@@ -262,11 +289,14 @@ public class DetailedMetricsCsvExporter {
                 return;
             }
             
+            // Check if we have any disk metrics to determine if we need partition column
+            boolean hasDiskMetrics = metrics.stream().anyMatch(m -> m.startsWith("DISK_"));
+            
             // Write CSV header
-            writeHeader(writer);
+            writeHeader(writer, hasDiskMetrics);
             
             // Write data rows
-            int totalRows = writeDataRows(writer, allData);
+            int totalRows = writeDataRows(writer, allData, hasDiskMetrics);
             
             logger.info("Exported {} rows of detailed metrics for project '{}' to {}", 
                     totalRows, projectName, filename);
@@ -368,10 +398,14 @@ public class DetailedMetricsCsvExporter {
             for (Map<String, Object> dataPoint : dataPoints) {
                 String timestampStr = (String) dataPoint.get("timestamp");
                 
-                // Create location key (host + partition if available)
-                String locationKey = host;
+                // Create location key
+                String locationKey;
                 if (partition != null && !partition.isEmpty()) {
-                    locationKey += ":" + partition;
+                    // For disk metrics: host:port:partition
+                    locationKey = host + ":" + partition;
+                } else {
+                    // For system metrics: just host:port
+                    locationKey = host;
                 }
                 
                 // Get value
