@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Generates HTML index page for MongoDB Atlas metrics charts
+ * Enhanced to properly support specified chart dimensions
  */
 public class HtmlIndexGenerator {
     
