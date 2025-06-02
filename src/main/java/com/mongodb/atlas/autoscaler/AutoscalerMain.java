@@ -3,7 +3,6 @@ package com.mongodb.atlas.autoscaler;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -11,8 +10,6 @@ import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.mongodb.atlas.api.AtlasApiClient;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -31,14 +28,14 @@ public class AutoscalerMain implements Callable<Integer> {
     
     private static final Logger logger = LoggerFactory.getLogger(AutoscalerMain.class);
     
-    @Option(names = { "--apiPublicKey" }, description = "Atlas API public key", required = true)
+    @Option(names = { "--apiPublicKey" }, description = "Atlas API public key", required = false)
     private String apiPublicKey;
     
-    @Option(names = { "--apiPrivateKey" }, description = "Atlas API private key", required = true)
+    @Option(names = { "--apiPrivateKey" }, description = "Atlas API private key", required = false)
     private String apiPrivateKey;
     
     @Option(names = { "--includeProjectNames" }, description = "Project names to monitor for autoscaling", 
-            required = true, split = ",")
+            required = false, split = ",")
     private Set<String> includeProjectNames;
     
     @Option(names = { "--config", "-c" }, description = "Config file", 
@@ -219,7 +216,7 @@ public class AutoscalerMain implements Callable<Integer> {
                     RuleCondition.GREATER_THAN,
                     cpuScaleUpThreshold,
                     Duration.ofMinutes(cpuScaleUpDurationMinutes),
-                    ClusterTierInfo.ScaleDirection.UP,
+                    ScaleDirection.UP,
                     cooldown,
                     nodeType,
                     scaleAllShardsInUnison,
@@ -235,7 +232,7 @@ public class AutoscalerMain implements Callable<Integer> {
                     RuleCondition.LESS_THAN,
                     cpuScaleDownThreshold,
                     Duration.ofMinutes(cpuScaleDownDurationMinutes),
-                    ClusterTierInfo.ScaleDirection.DOWN,
+                    ScaleDirection.DOWN,
                     cooldown,
                     nodeType,
                     scaleAllShardsInUnison,
@@ -252,7 +249,7 @@ public class AutoscalerMain implements Callable<Integer> {
                     RuleCondition.GREATER_THAN,
                     memoryScaleUpThreshold,
                     Duration.ofMinutes(memoryScaleUpDurationMinutes),
-                    ClusterTierInfo.ScaleDirection.UP,
+                    ScaleDirection.UP,
                     cooldown,
                     nodeType,
                     scaleAllShardsInUnison,
@@ -264,45 +261,54 @@ public class AutoscalerMain implements Callable<Integer> {
         return rules;
     }
     
+    /**
+     * Main entry point
+     */
     public static void main(String[] args) {
-        AutoscalerMain main = new AutoscalerMain();
-        Logger logger = LoggerFactory.getLogger(AutoscalerMain.class);
-
+        // Create command line parser
+        CommandLine commandLine = new CommandLine(new AutoscalerMain());
+        
+        // Set default value provider to read from properties file
+        commandLine.setDefaultValueProvider(new PropertiesDefaultProvider());
+        
+        AutoscalerMain autoscalerMain = new AutoscalerMain();
         int exitCode = 0;
         try {
-            CommandLine cmd = new CommandLine(main);
+            CommandLine cmd = new CommandLine(autoscalerMain);
             ParseResult parseResult = cmd.parseArgs(args);
 
             File defaultsFile;
-            if (main.configFile != null) {
-                defaultsFile = main.configFile;
+            if (autoscalerMain.configFile != null) {
+                defaultsFile = autoscalerMain.configFile;
             } else {
-                defaultsFile = new File("autoscaler.properties");
+                defaultsFile = new File("atlas-client.properties");
             }
 
             if (defaultsFile.exists()) {
                 logger.info("Loading configuration from {}", defaultsFile.getAbsolutePath());
                 cmd.setDefaultValueProvider(new PropertiesDefaultProvider(defaultsFile));
             } else {
-                logger.warn("Configuration file {} not found, using command line options and defaults", 
-                        defaultsFile.getAbsolutePath());
+                logger.warn("Configuration file {} not found", defaultsFile.getAbsolutePath());
             }
             parseResult = cmd.parseArgs(args);
-
+            
             if (!CommandLine.printHelpIfRequested(parseResult)) {
-                logger.info("Starting MongoDB Atlas Autoscaler daemon");
-                exitCode = main.call();
-                logger.info("MongoDB Atlas Autoscaler daemon completed with exit code {}", exitCode);
+                logger.info("Starting MongoDB Atlas client");
+                exitCode = autoscalerMain.call();
+                logger.info("MongoDB Atlas client completed with exit code {}", exitCode);
             }
+            
+            exitCode = commandLine.execute(args);
+            System.exit(exitCode);
+            
         } catch (ParameterException ex) {
-            logger.error("Parameter error: {}", ex.getMessage());
-            ex.getCommandLine().usage(System.err);
-            exitCode = 1;
-        } catch (Exception e) {
-            logger.error("Unexpected error: {}", e.getMessage(), e);
-            exitCode = 2;
+            System.err.println("Error: " + ex.getMessage());
+            System.err.println();
+            commandLine.usage(System.err);
+            System.exit(1);
+        } catch (Exception ex) {
+            logger.error("Unexpected error: {}", ex.getMessage(), ex);
+            System.exit(1);
         }
-
-        System.exit(exitCode);
     }
 }
