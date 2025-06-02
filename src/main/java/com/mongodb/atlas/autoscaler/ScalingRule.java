@@ -179,31 +179,6 @@ public class ScalingRule {
     }
     
     /**
-     * Enum for rule condition types
-     */
-    public enum RuleCondition {
-        GREATER_THAN(">"),
-        LESS_THAN("<"),
-        GREATER_THAN_OR_EQUAL(">="),
-        LESS_THAN_OR_EQUAL("<=");
-        
-        private final String symbol;
-        
-        RuleCondition(String symbol) {
-            this.symbol = symbol;
-        }
-        
-        public String getSymbol() {
-            return symbol;
-        }
-        
-        @Override
-        public String toString() {
-            return symbol;
-        }
-    }
-    
-    /**
      * Predefined scaling rules for common scenarios
      */
     public static class CommonRules {

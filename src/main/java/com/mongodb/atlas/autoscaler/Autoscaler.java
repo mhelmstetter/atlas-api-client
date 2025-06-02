@@ -468,42 +468,7 @@ public class Autoscaler {
     }
     
     /**
-     * Determine the target tier for scaling
-     */
-    private String determineTargetTier(String currentTier, ScaleDirection direction) {
-        if (currentTier == null) {
-            return null;
-        }
-        
-        List<String> tierProgression = getTierProgression();
-        int currentIndex = tierProgression.indexOf(currentTier);
-        
-        if (currentIndex == -1) {
-            logger.warn("Unknown tier: {}", currentTier);
-            return null;
-        }
-        
-        int targetIndex = currentIndex;
-        
-        switch (direction) {
-            case UP:
-                targetIndex = currentIndex + 1;
-                break;
-            case DOWN:
-                targetIndex = currentIndex - 1;
-                break;
-        }
-        
-        if (targetIndex >= 0 && targetIndex < tierProgression.size()) {
-            return tierProgression.get(targetIndex);
-        }
-        
-        return null; // Can't scale further in that direction
-    }
-    
-    /**
      * Get the tier progression for scaling
-     * TODO: This should ideally come from Atlas API, but for now we'll use a hardcoded list
      */
     private List<String> getTierProgression() {
         return Arrays.asList(
@@ -682,7 +647,28 @@ public class Autoscaler {
         );
     }
     
-
+    /**
+     * Status information for the autoscaler
+     */
+    public static class AutoscalerStatus {
+        private final boolean running;
+        private final int clustersMonitored;
+        private final int recentScaleActions;
+        private final Instant lastUpdate;
+        
+        public AutoscalerStatus(boolean running, int clustersMonitored, int recentScaleActions, Instant lastUpdate) {
+            this.running = running;
+            this.clustersMonitored = clustersMonitored;
+            this.recentScaleActions = recentScaleActions;
+            this.lastUpdate = lastUpdate;
+        }
+        
+        // Getters
+        public boolean isRunning() { return running; }
+        public int getClustersMonitored() { return clustersMonitored; }
+        public int getRecentScaleActions() { return recentScaleActions; }
+        public Instant getLastUpdate() { return lastUpdate; }
+    }
     
     /**
      * Container for individual shard tier information
@@ -724,8 +710,11 @@ public class Autoscaler {
             this.readOnlyNodeCount = other.readOnlyNodeCount;
         }
         
-        public void scaleNodeType(NodeType nodeType, ScaleDirection scaleDirection) {
-            List<String> tierProgression = getTierProgression();
+        public void scaleNodeType(ClusterTierInfo.NodeType nodeType, ScaleDirection scaleDirection) {
+            List<String> tierProgression = Arrays.asList(
+                    "M0", "M2", "M5", "M10", "M20", "M30", "M40", "M50", "M60", "M80", 
+                    "M140", "M200", "M300", "M400", "M700"
+            );
             
             switch (nodeType) {
                 case ELECTABLE:
@@ -741,26 +730,6 @@ public class Autoscaler {
                 case READ_ONLY:
                     if (readOnlyInstanceSize != null) {
                         readOnlyInstanceSize = getNextTier(readOnlyInstanceSize, scaleDirection, tierProgression);
-                    }
-                    break;
-            }
-        }
-            List<String> tierProgression = getTierProgression();
-            
-            switch (nodeType) {
-                case ELECTABLE:
-                    if (electableInstanceSize != null) {
-                        electableInstanceSize = getNextTier(electableInstanceSize, direction, tierProgression);
-                    }
-                    break;
-                case ANALYTICS:
-                    if (analyticsInstanceSize != null) {
-                        analyticsInstanceSize = getNextTier(analyticsInstanceSize, direction, tierProgression);
-                    }
-                    break;
-                case READ_ONLY:
-                    if (readOnlyInstanceSize != null) {
-                        readOnlyInstanceSize = getNextTier(readOnlyInstanceSize, direction, tierProgression);
                     }
                     break;
             }
@@ -790,69 +759,9 @@ public class Autoscaler {
     }
     
     /**
-     * Enum for different node types in Atlas clusters
-     */
-    public enum NodeType {
-        ELECTABLE("electable", "Primary/Secondary nodes"),
-        ANALYTICS("analytics", "Analytics nodes"),
-        READ_ONLY("readOnly", "Read-only nodes");
-        
-        private final String apiName;
-        private final String description;
-        
-        NodeType(String apiName, String description) {
-            this.apiName = apiName;
-            this.description = description;
-        }
-        
-        public String getApiName() { return apiName; }
-        public String getDescription() { return description; }
-    }
-    
-    public static class AutoscalerStatus {
-        private final boolean running;
-        private final int clustersMonitored;
-        private final int recentScaleActions;
-        private final Instant lastUpdate;
-        
-        public AutoscalerStatus(boolean running, int clustersMonitored, int recentScaleActions, Instant lastUpdate) {
-            this.running = running;
-            this.clustersMonitored = clustersMonitored;
-            this.recentScaleActions = recentScaleActions;
-            this.lastUpdate = lastUpdate;
-        }
-        
-        // Getters
-        public boolean isRunning() { return running; }
-        public int getClustersMonitored() { return clustersMonitored; }
-        public int getRecentScaleActions() { return recentScaleActions; }
-        public Instant getLastUpdate() { return lastUpdate; }
-    }
-    
-    /**
-     * Enum for different node types in Atlas clusters
-     */
-    public enum NodeType {
-        ELECTABLE("electable", "Primary/Secondary nodes"),
-        ANALYTICS("analytics", "Analytics nodes"),
-        READ_ONLY("readOnly", "Read-only nodes");
-        
-        private final String apiName;
-        private final String description;
-        
-        NodeType(String apiName, String description) {
-            this.apiName = apiName;
-            this.description = description;
-        }
-        
-        public String getApiName() { return apiName; }
-        public String getDescription() { return description; }
-    }
-    
-    /**
      * Container for metric data points
      */
-    class MetricDataPoint {
+    public static class MetricDataPoint {
         private final String hostname;
         private final Instant timestamp;
         private final double value;
@@ -872,7 +781,7 @@ public class Autoscaler {
     /**
      * Container for cluster metrics
      */
-    class ClusterMetrics {
+    public static class ClusterMetrics {
         private final String clusterName;
         private final Map<String, List<MetricDataPoint>> metricData = new HashMap<>();
         

@@ -105,10 +105,4 @@ public class ClusterTierInfo {
         public String getDescription() { return description; }
     }
     
-    /**
-     * Enum for scaling direction
-     */
-    public enum ScaleDirection {
-        UP, DOWN
-    }
 }
