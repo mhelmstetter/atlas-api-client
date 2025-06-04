@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -295,9 +296,7 @@ public class Autoscaler {
         return false;
     }
     
-    /**
-     * Collect current metrics for a cluster
-     */
+
     private ClusterMetrics collectClusterMetrics(String projectId, Map<String, Object> cluster) {
         String clusterName = (String) cluster.get("name");
         ClusterMetrics metrics = new ClusterMetrics(clusterName);
@@ -306,22 +305,55 @@ public class Autoscaler {
             // Get all processes for the project
             List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
             
-            // Filter processes for this cluster
+            logger.debug("Found {} total processes in project {}", processes.size(), projectId);
+            
+            // Extract hostnames that belong to this cluster from connection strings
+            Set<String> clusterHostnames = extractClusterHostnames(cluster);
+            logger.debug("Expected hostnames for cluster {}: {}", clusterName, clusterHostnames);
+            
+            // Filter processes using userAlias field (which matches connection string hostnames)
             List<Map<String, Object>> clusterProcesses = processes.stream()
                     .filter(process -> {
-                        String processClusterName = (String) process.get("replicaSetName");
-                        return clusterName.equals(processClusterName);
-                    })
-                    .filter(process -> {
+                        String userAlias = (String) process.get("userAlias");
                         String typeName = (String) process.get("typeName");
-                        return !typeName.startsWith("SHARD_CONFIG") && !typeName.equals("SHARD_MONGOS");
+                        
+                        // First filter: exclude config servers and mongos processes
+                        boolean typeMatch = !typeName.startsWith("SHARD_CONFIG") && !typeName.equals("SHARD_MONGOS");
+                        
+                        // Second filter: match userAlias with cluster hostnames
+                        boolean hostnameMatch = userAlias != null && clusterHostnames.contains(userAlias);
+                        
+                        boolean include = typeMatch && hostnameMatch;
+                        
+                        if (include) {
+                            logger.debug("Including process {} (userAlias: {}) - type: {}", 
+                                    process.get("hostname"), userAlias, typeName);
+                        }
+                        
+                        return include;
                     })
                     .collect(Collectors.toList());
+            
+            logger.debug("Filtered to {} processes for cluster {}", clusterProcesses.size(), clusterName);
+            
+            if (clusterProcesses.isEmpty()) {
+                logger.warn("No matching processes found for cluster {}. Expected hostnames: {}", 
+                        clusterName, clusterHostnames);
+                
+                // Debug: show what userAliases are actually available
+                Set<String> availableUserAliases = processes.stream()
+                        .map(p -> (String) p.get("userAlias"))
+                        .filter(alias -> alias != null)
+                        .collect(Collectors.toSet());
+                logger.warn("Available userAliases in processes: {}", availableUserAliases);
+            }
             
             // Collect metrics for each metric type configured
             Set<String> metricsToCollect = config.getScalingRules().stream()
                     .map(ScalingRule::getMetricName)
                     .collect(Collectors.toSet());
+            
+            logger.debug("Metrics to collect: {}", metricsToCollect);
             
             for (String metricName : metricsToCollect) {
                 collectMetricForCluster(projectId, clusterProcesses, metricName, metrics);
@@ -332,6 +364,42 @@ public class Autoscaler {
         }
         
         return metrics;
+    }
+
+    /**
+     * Extract hostnames that belong to this cluster from the connection strings
+     */
+    private Set<String> extractClusterHostnames(Map<String, Object> cluster) {
+        Set<String> hostnames = new HashSet<>();
+        
+        try {
+            Map<String, Object> connectionStrings = (Map<String, Object>) cluster.get("connectionStrings");
+            if (connectionStrings != null) {
+                String standardConnectionString = (String) connectionStrings.get("standard");
+                if (standardConnectionString != null) {
+                    // Parse hostnames from connection string like:
+                    // mongodb://cluster-shard-00-00.xxx.mongodb.net:27016,cluster-shard-00-01.xxx.mongodb.net:27016,...
+                    String hostPart = standardConnectionString
+                            .replaceFirst("mongodb://", "")  // Remove mongodb:// prefix
+                            .split("\\?")[0];                // Remove query parameters
+                    
+                    String[] hosts = hostPart.split(",");
+                    for (String host : hosts) {
+                        String hostname = host.split(":")[0].trim(); // Remove port and whitespace
+                        if (!hostname.isEmpty()) {
+                            hostnames.add(hostname);
+                        }
+                    }
+                }
+            }
+            
+            logger.debug("Extracted {} hostnames from cluster connection string", hostnames.size());
+            
+        } catch (Exception e) {
+            logger.error("Error extracting hostnames from cluster: {}", e.getMessage());
+        }
+        
+        return hostnames;
     }
     
     /**
@@ -408,6 +476,8 @@ public class Autoscaler {
                 return null;
             }
             
+            logger.debug("Cluster {} has {} replicationSpecs", clusterName, replicationSpecs.size());
+            
             ClusterTierInfo tierInfo = new ClusterTierInfo(clusterName);
             
             // Process each shard
@@ -417,43 +487,54 @@ public class Autoscaler {
                 
                 ShardTierInfo shardInfo = new ShardTierInfo(shardId);
                 
-                // Extract electable specs (primary/secondary nodes)
-                Map<String, Object> electableSpecs = (Map<String, Object>) replicationSpec.get("electableSpecs");
-                if (electableSpecs != null) {
-                    String instanceSize = (String) electableSpecs.get("instanceSize");
-                    Integer nodeCount = (Integer) electableSpecs.get("nodeCount");
-                    if (instanceSize != null && nodeCount != null && nodeCount > 0) {
-                        shardInfo.setElectableSpecs(instanceSize, nodeCount);
-                    }
-                }
+                // Extract regionConfigs (Atlas clusters are organized by regions)
+                List<Map<String, Object>> regionConfigs = (List<Map<String, Object>>) replicationSpec.get("regionConfigs");
                 
-                // Extract analytics specs (analytics nodes)
-                Map<String, Object> analyticsSpecs = (Map<String, Object>) replicationSpec.get("analyticsSpecs");
-                if (analyticsSpecs != null) {
-                    String instanceSize = (String) analyticsSpecs.get("instanceSize");
-                    Integer nodeCount = (Integer) analyticsSpecs.get("nodeCount");
-                    if (instanceSize != null && nodeCount != null && nodeCount > 0) {
-                        shardInfo.setAnalyticsSpecs(instanceSize, nodeCount);
+                if (regionConfigs != null && !regionConfigs.isEmpty()) {
+                    // Use the first region config (most clusters have single region)
+                    Map<String, Object> regionConfig = regionConfigs.get(0);
+                    
+                    // Extract electable specs (primary/secondary nodes)
+                    Map<String, Object> electableSpecs = (Map<String, Object>) regionConfig.get("electableSpecs");
+                    if (electableSpecs != null) {
+                        String instanceSize = (String) electableSpecs.get("instanceSize");
+                        Integer nodeCount = (Integer) electableSpecs.get("nodeCount");
+                        if (instanceSize != null && nodeCount != null && nodeCount > 0) {
+                            shardInfo.setElectableSpecs(instanceSize, nodeCount);
+                        }
                     }
-                }
-                
-                // Extract read-only specs (read-only nodes)
-                Map<String, Object> readOnlySpecs = (Map<String, Object>) replicationSpec.get("readOnlySpecs");
-                if (readOnlySpecs != null) {
-                    String instanceSize = (String) readOnlySpecs.get("instanceSize");
-                    Integer nodeCount = (Integer) readOnlySpecs.get("nodeCount");
-                    if (instanceSize != null && nodeCount != null && nodeCount > 0) {
-                        shardInfo.setReadOnlySpecs(instanceSize, nodeCount);
+                    
+                    // Extract analytics specs (analytics nodes)
+                    Map<String, Object> analyticsSpecs = (Map<String, Object>) regionConfig.get("analyticsSpecs");
+                    if (analyticsSpecs != null) {
+                        String instanceSize = (String) analyticsSpecs.get("instanceSize");
+                        Integer nodeCount = (Integer) analyticsSpecs.get("nodeCount");
+                        if (instanceSize != null && nodeCount != null && nodeCount > 0) {
+                            shardInfo.setAnalyticsSpecs(instanceSize, nodeCount);
+                        }
                     }
+                    
+                    // Extract read-only specs (read-only nodes)
+                    Map<String, Object> readOnlySpecs = (Map<String, Object>) regionConfig.get("readOnlySpecs");
+                    if (readOnlySpecs != null) {
+                        String instanceSize = (String) readOnlySpecs.get("instanceSize");
+                        Integer nodeCount = (Integer) readOnlySpecs.get("nodeCount");
+                        if (instanceSize != null && nodeCount != null && nodeCount > 0) {
+                            shardInfo.setReadOnlySpecs(instanceSize, nodeCount);
+                        }
+                    }
+                    
+                } else {
+                    logger.warn("No regionConfigs found for shard {} in cluster {}", shardId, clusterName);
                 }
                 
                 tierInfo.addShard(shardInfo);
                 
-                logger.debug("Shard {} - Electable: {}, Analytics: {}, ReadOnly: {}", 
+                logger.debug("Shard {} - Electable: {} ({}), Analytics: {} ({}), ReadOnly: {} ({})", 
                         shardId, 
-                        shardInfo.getElectableInstanceSize(),
-                        shardInfo.getAnalyticsInstanceSize(),
-                        shardInfo.getReadOnlyInstanceSize());
+                        shardInfo.getElectableInstanceSize(), shardInfo.getElectableNodeCount(),
+                        shardInfo.getAnalyticsInstanceSize(), shardInfo.getAnalyticsNodeCount(),
+                        shardInfo.getReadOnlyInstanceSize(), shardInfo.getReadOnlyNodeCount());
             }
             
             logger.info("Cluster {} has {} shards with tiers: {}", 
