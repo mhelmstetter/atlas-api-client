@@ -50,7 +50,7 @@ public class AtlasApiClient {
         this.apiBase = new AtlasApiBase(apiPublicKey, apiPrivateKey, debugLevel);
         this.monitoring = new AtlasMonitoringClient(apiBase);
         this.clusters = new AtlasClustersClient(apiBase);
-        this.logs = new AtlasLogsClient(apiBase);
+        this.logs = new AtlasLogsClient(apiBase, this);
     }
     
     

@@ -6,8 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -112,8 +111,6 @@ public class AtlasMonitoringClient {
         String metricParams = apiBase.formatMetricsParam(metrics);
         String processId = hostname + ":" + port;
         
-        int totalPagesProcessed = 0;
-        int totalDataPointsCollected = 0;
         int pageNum = 1;
         boolean hasMorePages = true;
         
@@ -143,8 +140,6 @@ public class AtlasMonitoringClient {
                     }
                     
                     int pageDataPoints = apiBase.countDataPoints(pageMeasurements);
-                    totalDataPointsCollected += pageDataPoints;
-                    totalPagesProcessed++;
                     
                     logger.debug("Page {} processed: {} data points", pageNum, pageDataPoints);
                     
