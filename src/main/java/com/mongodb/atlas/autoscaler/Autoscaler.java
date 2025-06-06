@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 
 /**
  * MongoDB Atlas Autoscaler
@@ -124,7 +124,7 @@ public class Autoscaler {
             logger.debug("Starting monitoring cycle...");
             
             // Get projects to monitor
-            Map<String, String> projectMap = apiClient.getProjects(config.getProjectNames());
+            Map<String, String> projectMap = apiClient.clusters().getProjects(config.getProjectNames());
             
             for (Map.Entry<String, String> projectEntry : projectMap.entrySet()) {
                 String projectName = projectEntry.getKey();
@@ -150,7 +150,7 @@ public class Autoscaler {
     private void monitorProject(String projectName, String projectId) {
         try {
             // Get all clusters in the project
-            List<Map<String, Object>> clusters = apiClient.getClusters(projectId);
+            List<Map<String, Object>> clusters = apiClient.clusters().getClusters(projectId);
             
             for (Map<String, Object> cluster : clusters) {
                 String clusterName = (String) cluster.get("name");
@@ -303,7 +303,7 @@ public class Autoscaler {
         
         try {
             // Get all processes for the project
-            List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
+            List<Map<String, Object>> processes = apiClient.clusters().getProcesses(projectId);
             
             logger.debug("Found {} total processes in project {}", processes.size(), projectId);
             
@@ -414,14 +414,26 @@ public class Autoscaler {
             
             try {
                 // Get recent measurements (last 10 minutes)
-                List<Map<String, Object>> measurements = apiClient.getProcessMeasurements(
+                List<Map<String, Object>> measurements = apiClient.monitoring().getProcessMeasurements(
                         projectId, hostname, port, 
                         List.of(metricName), 
                         "PT1M", // 1 minute granularity
                         "PT10M" // Last 10 minutes
                 );
                 
-                if (measurements != null && !measurements.isEmpty()) {
+                if (measurements == null || measurements.isEmpty()) {
+                	
+                	logger.debug("PT1M metric data not available, trying PT10S data");
+                	measurements = apiClient.monitoring().getProcessMeasurements(
+                            projectId, hostname, port, 
+                            List.of(metricName), 
+                            "PT10S", // 1 minute granularity
+                            "PT10M" // Last 10 minutes
+                    );
+                
+                }
+                
+                if (measurements != null || !measurements.isEmpty()) {
                     for (Map<String, Object> measurement : measurements) {
                         String name = (String) measurement.get("name");
                         

@@ -8,7 +8,7 @@ import org.jfree.data.time.TimeSeriesCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
 
 /**
@@ -95,7 +95,7 @@ public class ApiVisualReporter extends BaseVisualReporter {
             
         try {
             // Get all processes for this project
-            List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
+            List<Map<String, Object>> processes = apiClient.clusters().getProcesses(projectId);
             
             // For disk metrics, we'll need to handle them differently
             boolean isDiskMetric = metricName.startsWith("DISK_");
@@ -142,12 +142,12 @@ public class ApiVisualReporter extends BaseVisualReporter {
             
             if (useExplicitTimeRange) {
                 // Use explicit timerange method for longer periods
-                measurements = apiClient.getProcessMeasurementsWithTimeRange(
+                measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(
                         projectId, hostname, port,
                         List.of(metricName), granularity, period);
             } else {
                 // Use standard period-based method for shorter periods
-                measurements = apiClient.getProcessMeasurements(
+                measurements = apiClient.monitoring().getProcessMeasurements(
                         projectId, hostname, port,
                         List.of(metricName), granularity, period);
             }
@@ -179,7 +179,7 @@ public class ApiVisualReporter extends BaseVisualReporter {
         
         try {
             // Get all disk partitions
-            List<Map<String, Object>> disks = apiClient.getProcessDisks(projectId, hostname, port);
+            List<Map<String, Object>> disks = apiClient.monitoring().getProcessDisks(projectId, hostname, port);
             
             // Apply same logic as MetricsProcessor for method selection
             boolean useExplicitTimeRange = shouldUseExplicitTimeRange(period);
@@ -191,12 +191,12 @@ public class ApiVisualReporter extends BaseVisualReporter {
                 
                 if (useExplicitTimeRange) {
                     // Use explicit timerange method for longer periods (string period version)
-                    measurements = apiClient.getDiskMeasurementsWithTimeRange(
+                    measurements = apiClient.monitoring().getDiskMeasurementsWithTimeRange(
                             projectId, hostname, port, partitionName,
                             List.of(metricName), granularity, period);
                 } else {
                     // Use standard period-based method for shorter periods  
-                    measurements = apiClient.getDiskMeasurements(
+                    measurements = apiClient.monitoring().getDiskMeasurements(
                             projectId, hostname, port, partitionName,
                             List.of(metricName), granularity, period);
                 }

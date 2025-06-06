@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 import com.mongodb.atlas.api.util.MetricsUtils;
 
 /**
@@ -152,7 +152,7 @@ public class MetricsCollector {
 		this.includedProjects = includeProjectNames;
 
 		// Get projects matching the specified names
-		Map<String, String> projectMap = apiClient.getProjects(includeProjectNames);
+		Map<String, String> projectMap = apiClient.clusters().getProjects(includeProjectNames);
 
 		logger.info("Beginning to collect metrics for {} projects: {}", projectMap.size(),
 				String.join(", ", projectMap.keySet()));
@@ -225,7 +225,7 @@ public class MetricsCollector {
 
 		try {
 			// Get all processes for this project
-			List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
+			List<Map<String, Object>> processes = apiClient.clusters().getProcesses(projectId);
 			logger.info("Collecting metrics for project: {} with {} processes", projectName, processes.size());
 
 			// Filter out config servers and mongos instances
@@ -333,7 +333,7 @@ public class MetricsCollector {
 				// Use period days if we don't have a specific start time
 				logger.info("Fetching system metrics for {}:{} with period of {}", hostname, port, period);
 
-				measurements = apiClient.getProcessMeasurementsWithTimeRange(projectId, hostname, port, systemMetrics,
+				measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(projectId, hostname, port, systemMetrics,
 						granularity, period);
 
 				if (measurements == null || measurements.isEmpty()) {
@@ -393,7 +393,7 @@ public class MetricsCollector {
 
 		try {
 			// Get all disk partitions
-			List<Map<String, Object>> disks = apiClient.getProcessDisks(projectId, hostname, port);
+			List<Map<String, Object>> disks = apiClient.monitoring().getProcessDisks(projectId, hostname, port);
 
 			if (disks.isEmpty()) {
 				logger.warn("No disk partitions found for process {}:{}", hostname, port);
@@ -441,7 +441,7 @@ public class MetricsCollector {
 					// Get measurements for this disk partition using time range
 					logger.info("Fetching disk metrics for {}:{} partition {}", hostname, port, partitionName);
 
-					List<Map<String, Object>> measurements = apiClient.getDiskMeasurementsWithTimeRange(projectId,
+					List<Map<String, Object>> measurements = apiClient.monitoring().getDiskMeasurementsWithTimeRange(projectId,
 							hostname, port, partitionName, diskMetrics, granularity, period);
 
 					if (measurements == null || measurements.isEmpty()) {

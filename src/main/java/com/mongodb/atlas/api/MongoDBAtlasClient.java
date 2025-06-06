@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mongodb.atlas.api.charts.ApiVisualReporter;
 import com.mongodb.atlas.api.charts.StorageVisualReporter;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 import com.mongodb.atlas.api.csv.CsvExporter;
 import com.mongodb.atlas.api.csv.DetailedMetricsCsvExporter;
 import com.mongodb.atlas.api.metrics.MetricsCollector;

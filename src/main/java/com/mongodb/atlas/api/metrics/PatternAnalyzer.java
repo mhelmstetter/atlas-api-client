@@ -8,7 +8,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 
 /**
  * Analyzes time series data from MongoDB Atlas metrics to identify patterns
@@ -390,7 +390,7 @@ public class PatternAnalyzer {
         
         try {
             // Get all processes for this project
-            List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
+            List<Map<String, Object>> processes = apiClient.clusters().getProcesses(projectId);
             logger.info("Analyzing patterns for {} processes in project {}", processes.size(), projectId);
             
             for (Map<String, Object> process : processes) {
@@ -406,7 +406,7 @@ public class PatternAnalyzer {
                 try {
                     // For system metrics
                     if (!metricName.startsWith("DISK_")) {
-                        List<Map<String, Object>> measurements = apiClient.getProcessMeasurements(
+                        List<Map<String, Object>> measurements = apiClient.monitoring().getProcessMeasurements(
                                 projectId, hostname, port, List.of(metricName), granularity, period);
                         
                         if (measurements != null && !measurements.isEmpty()) {
@@ -432,13 +432,13 @@ public class PatternAnalyzer {
                     } 
                     // For disk metrics
                     else {
-                        List<Map<String, Object>> disks = apiClient.getProcessDisks(projectId, hostname, port);
+                        List<Map<String, Object>> disks = apiClient.monitoring().getProcessDisks(projectId, hostname, port);
                         
                         for (Map<String, Object> disk : disks) {
                             String partitionName = (String) disk.get("partitionName");
                             String diskId = instanceId + ":" + partitionName;
                             
-                            List<Map<String, Object>> measurements = apiClient.getDiskMeasurements(
+                            List<Map<String, Object>> measurements = apiClient.monitoring().getDiskMeasurements(
                                     projectId, hostname, port, partitionName, 
                                     List.of(metricName), granularity, period);
                             
