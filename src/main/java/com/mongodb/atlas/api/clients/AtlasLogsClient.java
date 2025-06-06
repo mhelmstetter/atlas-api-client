@@ -36,7 +36,7 @@ public class AtlasLogsClient {
     /**
      * Get log lines for a specific log file
      */
-    public String getLogLines(String projectId, String hostname, int port, 
+    public String getLogsForHost(String projectId, String hostname, int port, 
                              String logName, Instant startDate, Instant endDate) {
         String processId = hostname + ":" + port;
         
@@ -71,15 +71,6 @@ public class AtlasLogsClient {
         throw new UnsupportedOperationException("Binary log download not yet implemented");
     }
     
-    /**
-     * Get recent log lines (last N hours)
-     */
-    public String getRecentLogLines(String projectId, String hostname, int port, 
-                                   String logName, int lastHours) {
-        Instant endDate = Instant.now();
-        Instant startDate = endDate.minusSeconds(lastHours * 3600L);
-        
-        return getLogLines(projectId, hostname, port, logName, startDate, endDate);
-    }
+
 }
 
