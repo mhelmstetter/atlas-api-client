@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 import com.mongodb.atlas.autoscaler.Autoscaler.ShardTierInfo;
 
 /**
@@ -123,7 +123,7 @@ public class AtlasScalingClient {
      */
     private Map<String, Object> getCurrentCluster(String projectId, String clusterName) {
         try {
-            List<Map<String, Object>> clusters = apiClient.getClusters(projectId);
+            List<Map<String, Object>> clusters = apiClient.clusters().getClusters(projectId);
             
             for (Map<String, Object> cluster : clusters) {
                 if (clusterName.equals(cluster.get("name"))) {

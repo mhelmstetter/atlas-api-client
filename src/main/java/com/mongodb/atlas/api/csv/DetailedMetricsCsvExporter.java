@@ -13,7 +13,7 @@ import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.mongodb.atlas.api.AtlasApiClient;
+import com.mongodb.atlas.api.clients.AtlasApiClient;
 import com.mongodb.atlas.api.metrics.MetricsStorage;
 import com.mongodb.atlas.api.util.MetricsUtils;
 
@@ -321,7 +321,7 @@ public class DetailedMetricsCsvExporter {
         Map<String, Map<String, Map<String, Double>>> allData = new TreeMap<>();
         
         // Get all processes for this project
-        List<Map<String, Object>> processes = apiClient.getProcesses(projectId);
+        List<Map<String, Object>> processes = apiClient.clusters().getProcesses(projectId);
         
         // Filter out config servers and mongos instances
         List<Map<String, Object>> filteredProcesses = processes.stream()
@@ -346,7 +346,7 @@ public class DetailedMetricsCsvExporter {
                         .collect(Collectors.toList());
                 
                 if (!systemMetrics.isEmpty()) {
-                    List<Map<String, Object>> measurements = apiClient.getProcessMeasurementsWithTimeRange(
+                    List<Map<String, Object>> measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(
                             projectId, hostname, port, systemMetrics, granularity, period);
                     
                     processApiMeasurements(allData, measurements, hostPort, null);
@@ -359,12 +359,12 @@ public class DetailedMetricsCsvExporter {
                 
                 if (!diskMetrics.isEmpty()) {
                     // Get disk partitions
-                    List<Map<String, Object>> disks = apiClient.getProcessDisks(projectId, hostname, port);
+                    List<Map<String, Object>> disks = apiClient.monitoring().getProcessDisks(projectId, hostname, port);
                     
                     for (Map<String, Object> disk : disks) {
                         String partitionName = (String) disk.get("partitionName");
                         
-                        List<Map<String, Object>> diskMeasurements = apiClient.getDiskMeasurementsWithTimeRange(
+                        List<Map<String, Object>> diskMeasurements = apiClient.monitoring().getDiskMeasurementsWithTimeRange(
                                 projectId, hostname, port, partitionName, diskMetrics, granularity, period);
                         
                         processApiMeasurements(allData, diskMeasurements, hostPort, partitionName);

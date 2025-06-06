@@ -13,6 +13,8 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.mongodb.atlas.api.clients.AtlasApiClient;
+
 /**
  * Utility for monitoring and analyzing Atlas API usage
  * Can be used for debugging and understanding rate limit issues
