@@ -345,9 +345,9 @@ public class AtlasApiBase {
     }
     
     /**
-     * Core HTTP GET method with rate limiting and logging
+     * Core HTTP GET method with rate limiting and logging - supports custom Accept headers
      */
-    protected String getResponseBody(String url, String apiVersion, String projectId) {
+    protected String getResponseBody(String url, String acceptHeader, String projectId) {
         logRequest(url, projectId);
         checkRateLimit();
         trackRequest(projectId, url);
@@ -356,7 +356,7 @@ public class AtlasApiBase {
             long startTime = System.currentTimeMillis();
             String response = restClient.method(HttpMethod.GET)
                     .uri(url)
-                    .header("Accept", apiVersion)
+                    .header("Accept", acceptHeader)
                     .retrieve()
                     .body(String.class);
             long endTime = System.currentTimeMillis();
@@ -368,6 +368,35 @@ public class AtlasApiBase {
             return response;
         } catch (Exception e) {
             requestLogger.error("Request failed: {} - {}", url, e.getMessage());
+            throw e;
+        }
+    }
+    
+    /**
+     * Core HTTP GET method for binary responses (e.g., gzip log data)
+     */
+    protected byte[] getBinaryResponseBody(String url, String acceptHeader, String projectId) {
+        logRequest(url, projectId);
+        checkRateLimit();
+        trackRequest(projectId, url);
+        
+        try {
+            long startTime = System.currentTimeMillis();
+            byte[] response = restClient.method(HttpMethod.GET)
+                    .uri(url)
+                    .header("Accept", acceptHeader)
+                    .retrieve()
+                    .body(byte[].class);
+            long endTime = System.currentTimeMillis();
+            
+            if (debugLevel >= 2) {
+                requestLogger.info("Binary response time: {} ms for URL: {} ({} bytes)", 
+                                 (endTime - startTime), url, response.length);
+            }
+            
+            return response;
+        } catch (Exception e) {
+            requestLogger.error("Binary request failed: {} - {}", url, e.getMessage());
             throw e;
         }
     }
