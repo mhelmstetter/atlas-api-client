@@ -21,7 +21,6 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
-import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 
@@ -49,20 +48,20 @@ public class AtlasLogsUtility implements Callable<Integer> {
 	@Option(names = {"--clusterName"}, description = "Cluster name", arity = "0..1")
 	private String clusterName;
 
-	@Option(names = { "--output-dir", "-o" }, description = "Output directory for log files", defaultValue = "./logs")
+	@Option(names = { "--outputDir", "-o" }, description = "Output directory for log files", defaultValue = "./logs")
 	private String outputDirectory;
 
 	@Option(names = { "--days",
 			"-d" }, description = "Number of days back from now to retrieve logs", defaultValue = "1")
 	private int days;
 
-	@Option(names = { "--start-time" }, description = "Start time (ISO-8601 format, e.g., 2025-06-01T10:00:00Z)")
+	@Option(names = { "--startTime" }, description = "Start time (ISO-8601 format, e.g., 2025-06-01T10:00:00Z)")
 	private String startTime;
 
-	@Option(names = { "--end-time" }, description = "End time (ISO-8601 format, e.g., 2025-06-06T10:00:00Z)")
+	@Option(names = { "--endTime" }, description = "End time (ISO-8601 format, e.g., 2025-06-06T10:00:00Z)")
 	private String endTime;
 
-	@Option(names = { "--include-audit" }, description = "Include audit logs in download")
+	@Option(names = { "--includeAudit" }, description = "Include audit logs in download")
 	private boolean includeAudit;
 
 	private AtlasApiClient apiClient;
