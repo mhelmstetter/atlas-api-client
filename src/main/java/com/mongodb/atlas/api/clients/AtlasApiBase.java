@@ -381,6 +381,9 @@ public class AtlasApiBase {
         trackRequest(projectId, url);
         
         try {
+            logger.info("BINARY REQUEST: Making request to URL: {}", url);
+            logger.info("BINARY REQUEST: Using Accept header: {}", acceptHeader);
+            
             long startTime = System.currentTimeMillis();
             byte[] response = restClient.method(HttpMethod.GET)
                     .uri(url)
@@ -390,13 +393,14 @@ public class AtlasApiBase {
             long endTime = System.currentTimeMillis();
             
             if (debugLevel >= 2) {
-                requestLogger.info("Binary response time: {} ms for URL: {} ({} bytes)", 
-                                 (endTime - startTime), url, response.length);
+                requestLogger.info("BINARY RESPONSE: Success! Response time: {} ms for URL: {} ({} bytes)", 
+                                 (endTime - startTime), url, response != null ? response.length : 0);
             }
             
             return response;
         } catch (Exception e) {
-            requestLogger.error("Binary request failed: {} - {}", url, e.getMessage());
+            requestLogger.error("BINARY REQUEST FAILED: {} - {}", url, e.getMessage());
+            logger.error("BINARY REQUEST DETAILS: Accept header was: {}", acceptHeader);
             throw e;
         }
     }

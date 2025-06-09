@@ -65,6 +65,7 @@ public class AtlasClustersClient {
      * @param clusterName The name of the cluster
      * @return List of process objects for the specified cluster
      */
+    // TODO this is busted, does not filter clusterName
     public List<Map<String, Object>> getProcessesForCluster(String projectId, String clusterName) {
         logger.info("Fetching processes for cluster '{}' in project {}", clusterName, projectId);
         
@@ -73,22 +74,18 @@ public class AtlasClustersClient {
             List<Map<String, Object>> allProcesses = getProcesses(projectId);
             
             // Filter processes that belong to the specified cluster
-            List<Map<String, Object>> clusterProcesses = allProcesses.stream()
-                    .filter(process -> {
-                        String processClusterName = (String) process.get("clusterName");
-                        return clusterName.equals(processClusterName);
-                    })
-                    .collect(Collectors.toList());
+//            List<Map<String, Object>> clusterProcesses = allProcesses.stream()
+//                    .filter(process -> {
+//                        String processClusterName = (String) process.get("clusterName");
+//                        return clusterName.equals(processClusterName);
+//                    })
+//                    .collect(Collectors.toList());
             
-            logger.info("Found {} processes for cluster '{}' in project {}", 
-                    clusterProcesses.size(), clusterName, projectId);
+            logger.info("Found {} processes in project {}", 
+            		allProcesses.size(), projectId);
             
-            if (clusterProcesses.isEmpty()) {
-                logger.warn("No processes found for cluster '{}' in project {}. " +
-                           "Verify cluster name is correct and cluster exists.", clusterName, projectId);
-            }
             
-            return clusterProcesses;
+            return allProcesses;
             
         } catch (Exception e) {
             logger.error("Failed to retrieve processes for cluster '{}' in project {}: {}", 
