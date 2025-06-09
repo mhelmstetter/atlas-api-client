@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -32,14 +33,17 @@ public class AtlasLogsClient {
     private final AtlasApiBase apiBase;
     private final AtlasApiClient client;
     
-    // Atlas versioned gzip accept header
-    public static final String GZIP_ACCEPT_HEADER = "application/vnd.atlas.2025-01-01+gzip";
+    // Atlas gzip accept header - using v2 API format as per CLI
+    public static final String GZIP_ACCEPT_HEADER = "application/vnd.atlas.2023-02-01+gzip";
     
     // Common log types for MongoDB clusters
     public static final String LOG_TYPE_MONGODB = "mongodb.gz";
     public static final String LOG_TYPE_MONGODB_AUDIT = "mongodb-audit-log.gz";
     public static final String LOG_TYPE_MONGOS = "mongos.gz";
     public static final String LOG_TYPE_MONGOS_AUDIT = "mongos-audit-log.gz";
+    
+    // Log types to download by default (excluding audit logs)
+    public static final List<String> DEFAULT_LOG_TYPES = Arrays.asList(LOG_TYPE_MONGODB, LOG_TYPE_MONGOS);
     
     public AtlasLogsClient(AtlasApiBase apiBase, AtlasApiClient client) {
         this.apiBase = apiBase;
@@ -50,11 +54,11 @@ public class AtlasLogsClient {
      * Get available log types for a process
      */
     public List<Map<String, Object>> getLogTypes(String projectId, String hostname, int port) {
-        String processId = hostname + ":" + port;
-        String url = AtlasApiBase.BASE_URL_V1 + "/groups/" + projectId + "/clusters/" + processId + "/logs";
+        // Use v2 API endpoint as confirmed by Atlas CLI
+        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + hostname + "/logs";
         
-        logger.info("Fetching available log types for process {}:{}", hostname, port);
-        String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V1, projectId);
+        logger.info("Fetching available log types for hostname: {} (port: {})", hostname, port);
+        String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
         return apiBase.extractResults(responseBody);
     }
     
@@ -91,29 +95,43 @@ public class AtlasLogsClient {
      */
     public byte[] getCompressedLogsForHost(String projectId, String hostname, int port, 
                                          String logName, Instant startDate, Instant endDate) {
-        String processId = hostname + ":" + port;
         
-        // Format dates as required by the API (Unix timestamp)
-        String startDateStr = String.valueOf(startDate.getEpochSecond());
-        String endDateStr = String.valueOf(endDate.getEpochSecond());
+        // Build URL using only hostname (not hostname:port) as per Atlas API specification
+        String baseUrl = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + hostname + "/logs/" + logName;
         
-        String url = AtlasApiBase.BASE_URL_V1 + "/groups/" + projectId + "/clusters/" + processId + 
-                "/logs/" + logName + 
-                "?startDate=" + startDateStr + 
-                "&endDate=" + endDateStr;
+        // Build query parameters conditionally like Python code
+        StringBuilder url = new StringBuilder(baseUrl);
         
-        logger.info("Fetching compressed log data for {}:{} log {} from {} to {}", 
+        if (startDate != null && endDate != null) {
+            // Both dates provided
+            String startDateStr = String.valueOf(startDate.getEpochSecond());
+            String endDateStr = String.valueOf(endDate.getEpochSecond());
+            url.append("?endDate=").append(endDateStr).append("&startDate=").append(startDateStr);
+        } else if (startDate != null) {
+            // Only start date provided
+            String startDateStr = String.valueOf(startDate.getEpochSecond());
+            url.append("?startDate=").append(startDateStr);
+        } else if (endDate != null) {
+            // Only end date provided
+            String endDateStr = String.valueOf(endDate.getEpochSecond());
+            url.append("?endDate=").append(endDateStr);
+        }
+        // If neither date is provided, use API defaults (no query params)
+        
+        String finalUrl = url.toString();
+        logger.info("Fetching compressed log data from URL: {}", finalUrl);
+        logger.info("Log details - Host: {}, Port: {}, Log: {}, Start: {}, End: {}", 
                 hostname, port, logName, startDate, endDate);
         
         try {
             // Get binary gzip data using the special accept header
-            byte[] compressedData = apiBase.getBinaryResponseBody(url, GZIP_ACCEPT_HEADER, projectId);
+            byte[] compressedData = apiBase.getBinaryResponseBody(finalUrl, GZIP_ACCEPT_HEADER, projectId);
             logger.info("Retrieved {} bytes of compressed log data for {}:{} log {}", 
                        compressedData.length, hostname, port, logName);
             return compressedData;
         } catch (Exception e) {
-            logger.error("Failed to get compressed logs for {}:{} log {}: {}", 
-                    hostname, port, logName, e.getMessage());
+            logger.error("Failed to get compressed logs for {}:{} log {} from URL {}: {}", 
+                    hostname, port, logName, finalUrl, e.getMessage());
             throw new AtlasApiBase.AtlasApiException("Failed to get compressed logs", e);
         }
     }
@@ -174,6 +192,100 @@ public class AtlasLogsClient {
         logger.info("Downloaded compressed log file for {}:{} to: {} ({} bytes)", 
                    hostname, port, outputFile, compressedData.length);
         return outputFile;
+    }
+    
+    /**
+     * Download compressed log files for all processes in a cluster
+     * Downloads only MONGODB and MONGOS log types (excludes audit logs)
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The name of the cluster
+     * @param startDate Start date for log retrieval
+     * @param endDate End date for log retrieval
+     * @param outputDirectory Directory where log files will be saved
+     * @return List of paths to downloaded log files
+     * @throws IOException If file operations fail
+     */
+    public List<Path> downloadCompressedLogFilesForCluster(String projectId, String clusterName, 
+                                                          Instant startDate, Instant endDate, 
+                                                          String outputDirectory) throws IOException {
+        return downloadCompressedLogFilesForCluster(projectId, clusterName, startDate, endDate, 
+                                                   outputDirectory, DEFAULT_LOG_TYPES);
+    }
+    
+    /**
+     * Download compressed log files for all processes in a cluster with specified log types
+     * Uses process hostnames WITHOUT port numbers as confirmed by MongoDB support
+     */
+    public List<Path> downloadCompressedLogFilesForCluster(String projectId, String clusterName, 
+                                                          Instant startDate, Instant endDate, 
+                                                          String outputDirectory, 
+                                                          List<String> logTypes) throws IOException {
+        
+        logger.info("Starting download of compressed log files for cluster: {}", clusterName);
+        logger.info("Log types to download: {}", logTypes);
+        logger.info("Time range: {} to {}", startDate, endDate);
+        logger.info("Output directory: {}", outputDirectory);
+        
+        List<Path> downloadedFiles = new ArrayList<>();
+        
+        // Create output directory if it doesn't exist
+        Path outputDir = Paths.get(outputDirectory);
+        Files.createDirectories(outputDir);
+        
+        // Get all processes for the cluster using the existing method
+        List<Map<String, Object>> processes = client.clusters().getProcessesForCluster(projectId, clusterName);
+        
+        if (processes.isEmpty()) {
+            logger.warn("No processes found for cluster: {}", clusterName);
+            return downloadedFiles;
+        }
+        
+        logger.info("Found {} processes in cluster: {}", processes.size(), clusterName);
+        
+        // For each process, try to download each requested log type directly (skip listing step)
+        for (Map<String, Object> process : processes) {
+            String processId = (String) process.get("id");
+            String[] hostPort = processId.split(":");
+            String hostname = hostPort[0]; // Use hostname WITHOUT port
+            int port = Integer.parseInt(hostPort[1]);
+            
+            // Get process type for better debugging
+            String typeName = (String) process.get("typeName");
+            
+            logger.info("Processing logs for process: {} (type: {}) - using hostname: {}", 
+                       processId, typeName, hostname);
+            
+            // Skip certain process types that typically don't have logs available
+            if (typeName != null && (typeName.contains("CONFIG") || typeName.equals("ARBITER"))) {
+                logger.info("Skipping process {} (type: {}) - this process type typically doesn't expose logs via this API", 
+                           processId, typeName);
+                continue;
+            }
+            
+            // Try to download each requested log type directly (without listing first)
+            for (String logType : logTypes) {
+                try {
+                    logger.info("Attempting direct download of {} for process {} ({})", 
+                               logType, hostname, typeName);
+                    
+                    Path downloadedFile = downloadCompressedLogFileForHost(
+                        projectId, hostname, port, logType, startDate, endDate, outputDirectory);
+                    downloadedFiles.add(downloadedFile);
+                    logger.info("Successfully downloaded {} for process {} ({})", 
+                               logType, hostname, typeName);
+                } catch (Exception e) {
+                    logger.warn("Failed to download {} for process {} ({}): {} - continuing with next log type", 
+                               logType, hostname, typeName, e.getMessage());
+                    // Continue with other log types/processes
+                }
+            }
+        }
+        
+        logger.info("Completed download for cluster: {}. Downloaded {} files total.", 
+                   clusterName, downloadedFiles.size());
+        
+        return downloadedFiles;
     }
     
     /**
