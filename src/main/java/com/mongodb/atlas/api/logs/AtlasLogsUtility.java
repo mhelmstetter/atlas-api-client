@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,7 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mongodb.atlas.api.clients.AtlasApiClient;
-import com.mongodb.atlas.api.clients.AtlasLogsClient;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -68,72 +66,72 @@ public class AtlasLogsUtility implements Callable<Integer> {
 
 	@Override
 	public Integer call() throws Exception {
-		this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, debugLevel);
+	    this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, debugLevel);
 
-		// If no project name or cluster name provided, just show info
-		if (projectNames == null || clusterName == null) {
-			logger.info("Atlas API client initialized. Provide project name and cluster name to download logs.");
-			logger.info("Usage: java -jar atlas-logs-utility.jar <projectName> <clusterName> [options]");
-			return 0;
-		}
+	    // If no project name or cluster name provided, just show info
+	    if (projectNames == null || clusterName == null) {
+	        logger.info("Atlas API client initialized. Provide project name and cluster name to download logs.");
+	        logger.info("Usage: java -jar atlas-logs-utility.jar <projectName> <clusterName> [options]");
+	        return 0;
+	    }
 
-		try {
-			for (String projectName : projectNames) {
+	    try {
+	        for (String projectName : projectNames) {
 
-				// Determine time range
-				Instant startTimeInstant;
-				Instant endTimeInstant;
+	            // Determine time range (same as before)
+	            Instant startTimeInstant;
+	            Instant endTimeInstant;
 
-				if (startTime != null && endTime != null) {
-					startTimeInstant = Instant.parse(startTime);
-					endTimeInstant = Instant.parse(endTime);
-					logger.info("Using explicit time range: {} to {}", startTimeInstant, endTimeInstant);
-				} else {
-					endTimeInstant = Instant.now();
-					startTimeInstant = endTimeInstant.minus(days, ChronoUnit.DAYS);
-					logger.info("Using relative time range: last {} days ({} to {})", days, startTimeInstant,
-							endTimeInstant);
-				}
+	            if (startTime != null && endTime != null) {
+	                startTimeInstant = Instant.parse(startTime);
+	                endTimeInstant = Instant.parse(endTime);
+	                logger.info("Using explicit time range: {} to {}", startTimeInstant, endTimeInstant);
+	            } else {
+	                endTimeInstant = Instant.now();
+	                startTimeInstant = endTimeInstant.minus(days, ChronoUnit.DAYS);
+	                logger.info("Using relative time range: last {} days ({} to {})", days, startTimeInstant,
+	                        endTimeInstant);
+	            }
 
-				// Determine log types to download
-				List<String> targetLogTypes;
-				if (includeAudit) {
-					targetLogTypes = Arrays.asList(AtlasLogsClient.LOG_TYPE_MONGODB,
-							AtlasLogsClient.LOG_TYPE_MONGOS, AtlasLogsClient.LOG_TYPE_MONGODB_AUDIT,
-							AtlasLogsClient.LOG_TYPE_MONGOS_AUDIT);
-				} else {
-					targetLogTypes = AtlasLogsClient.DEFAULT_LOG_TYPES;
-				}
+	            // UPDATED: Use enum-based log type determination
+	            List<String> targetLogTypeFileNames;
+	            if (includeAudit) {
+	                targetLogTypeFileNames = AtlasLogType.getAllLogTypeFileNames();
+	                logger.info("Including audit logs: {}", targetLogTypeFileNames);
+	            } else {
+	                targetLogTypeFileNames = AtlasLogType.getDefaultLogTypeFileNames();
+	                logger.info("Using default log types (no audit): {}", targetLogTypeFileNames);
+	            }
 
-				logger.info("Downloading log types: {}", targetLogTypes);
-				logger.info("Output directory: {}", outputDirectory);
+	            logger.info("Downloading log types: {}", targetLogTypeFileNames);
+	            logger.info("Output directory: {}", outputDirectory);
 
-				// Get project ID
-				String projectId = getProjectId(projectName);
+	            // Get project ID
+	            String projectId = getProjectId(projectName);
 
-				// Download logs
-				List<Path> downloadedFiles = apiClient.logs().downloadCompressedLogFilesForCluster(projectId,
-						clusterName, startTimeInstant, endTimeInstant, outputDirectory, targetLogTypes);
+	            // Download logs
+	            List<Path> downloadedFiles = apiClient.logs().downloadCompressedLogFilesForCluster(projectId,
+	                    clusterName, startTimeInstant, endTimeInstant, outputDirectory, targetLogTypeFileNames);
 
-				logger.info("Successfully downloaded {} log files:", downloadedFiles.size());
-				for (Path file : downloadedFiles) {
-					logger.info("  - {}", file.toString());
-				}
+	            logger.info("Successfully downloaded {} log files:", downloadedFiles.size());
+	            for (Path file : downloadedFiles) {
+	                logger.info("  - {}", file.toString());
+	            }
 
-				if (downloadedFiles.isEmpty()) {
-					logger.warn("No log files were downloaded. Check cluster name and time range.");
-				}
+	            if (downloadedFiles.isEmpty()) {
+	                logger.warn("No log files were downloaded. Check cluster name and time range.");
+	            }
 
-			}
+	        }
 
-		} catch (IOException e) {
-			logger.error("Failed to download logs: {}", e.getMessage());
-			return 1;
-		} catch (Exception e) {
-			logger.error("Unexpected error during log download: {}", e.getMessage(), e);
-			return 2;
-		}
-		return 0;
+	    } catch (IOException e) {
+	        logger.error("Failed to download logs: {}", e.getMessage());
+	        return 1;
+	    } catch (Exception e) {
+	        logger.error("Unexpected error during log download: {}", e.getMessage(), e);
+	        return 2;
+	    }
+	    return 0;
 	}
 
 	private String getProjectId(String projectName) {
