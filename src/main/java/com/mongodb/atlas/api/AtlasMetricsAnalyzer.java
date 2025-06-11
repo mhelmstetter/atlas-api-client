@@ -93,9 +93,7 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--darkMode" }, description = "Enable dark mode for charts and HTML", required = false, defaultValue = "true")
     private boolean darkMode;
     
-    // Storage options
-    @Option(names = { "--storeMetrics" }, description = "Store metrics in MongoDB", required = false, defaultValue = "false")
-    private boolean storeMetrics;
+    // Storage options (automatically enabled when mongodbUri is provided)
     
     @Option(names = { "--collectOnly" }, description = "Only collect and store metrics without processing", required = false, defaultValue = "false")
     private boolean collectOnly;
@@ -137,7 +135,8 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         }
         
         // Initialize metrics storage if needed
-        if (storeMetrics || reportFromStorage || dataAvailabilityReport) {
+        boolean enableStorage = (mongodbUri != null && !mongodbUri.isEmpty());
+        if (enableStorage || reportFromStorage || dataAvailabilityReport) {
             if (mongodbUri == null || mongodbUri.isEmpty()) {
                 logger.error("MongoDB URI is required for storage operations");
                 return 1;
@@ -218,7 +217,7 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         else {
             // Initialize the metrics collector with storage option
             this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
-                    metricsStorage, storeMetrics, collectOnly);
+                    metricsStorage, enableStorage, collectOnly);
             
             // Collect metrics for all projects
             results = metricsCollector.collectMetrics(includeProjectNames);
