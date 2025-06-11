@@ -54,14 +54,14 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     private List<String> metrics;
     
     @Option(names = { "--period" }, description = "time period for data collection from API (ISO 8601 duration format)", required = false, 
-        defaultValue = "PT8H")
+        defaultValue = "PT48H")
     private String period;
     
     @Option(names = { "--reportPeriod" }, description = "time period for reporting from stored data (ISO 8601 duration format). If not specified, uses all available data.", required = false)
     private String reportPeriod;
     
     @Option(names = { "--granularity" }, description = "measurement granularity (ISO 8601 duration format)", required = false, 
-        defaultValue = "PT10S")
+        defaultValue = "PT1M")
     private String granularity;
     
     // CHANGED: exportCsvFilename to exportCsv (boolean)
@@ -79,8 +79,6 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--generateCharts" }, description = "Generate visual charts from metrics data", required = false, defaultValue = "false")
     private boolean generateCharts;
     
-    @Option(names = { "--generateHtmlIndex" }, description = "Generate HTML index of all charts", required = false, defaultValue = "true")
-    private boolean generateHtmlIndex;
     
     @Option(names = { "--chartWidth" }, description = "Width of generated charts in pixels", required = false, defaultValue = "600")
     private int chartWidth;
@@ -189,10 +187,8 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
                 }
                 
                 // Generate HTML index
-                if (generateHtmlIndex) {
-                    logger.info("Generating HTML index from stored data");
-                    storageReporter.createHtmlIndex(results);
-                }
+                logger.info("Generating HTML index from stored data");
+                storageReporter.createHtmlIndex(results);
                 
                 logger.info("Visualizations from stored data generated in directory: {}", chartOutputDir);
             }
@@ -245,11 +241,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
                     }
                 }
                 
-                // Generate HTML index if requested
-                if (generateHtmlIndex) {
-                    logger.info("Generating HTML index");
-                    reporter.createHtmlIndex(results);
-                }
+                // Generate HTML index
+                logger.info("Generating HTML index");
+                reporter.createHtmlIndex(results);
                 
                 logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
                         chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");

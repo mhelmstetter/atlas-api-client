@@ -81,7 +81,6 @@ mongodbCollection=metrics
 # Output settings
 exportCsv=true
 generateCharts=true
-generateHtmlIndex=true
 ```
 
 #### 2. Run the Analyzer
@@ -122,8 +121,8 @@ java -jar bin/AtlasClient.jar \
 | Option | Description | Default |
 |--------|-------------|---------|
 | `metrics` | Comma-separated list of metrics to collect | `SYSTEM_NORMALIZED_CPU_USER,`<br>`SYSTEM_MEMORY_USED,`<br>`SYSTEM_MEMORY_FREE,`<br>`DISK_PARTITION_IOPS_TOTAL` |
-| `period` | Time period for metrics collection (ISO 8601) | `PT8H` (8 hours) |
-| `granularity` | Metrics granularity (ISO 8601) | `PT10S` (10 seconds) |
+| `period` | Time period for metrics collection (ISO 8601) | `PT48H` (48 hours) |
+| `granularity` | Metrics granularity (ISO 8601) | `PT1M` (1 minute) |
 | `collect` | Only collect and store metrics without processing or reporting | `false` |
 
 **Common metrics examples:**
@@ -137,18 +136,12 @@ java -jar bin/AtlasClient.jar \
 |--------|-------------|---------|---------|
 | `exportCsv` | Export metrics to CSV format | `false` | `true` |
 | `detailedMetricsCsv` | Export detailed metrics to CSV | `false` | `true` |
-| `generateCharts` | Generate visual charts | `false` | `true` |
-| `generateHtmlIndex` | Create HTML index of all charts | `false` | `true` |
+| `generateCharts` | Generate visual charts (includes HTML index) | `false` | `true` |
 | `chartOutputDir` | Directory for chart output | `.` | `./reports` |
 | `darkMode` | Generate charts in dark mode | `false` | `true` |
 | `chartWidth` | Chart width in pixels | `300` | `800` |
 | `chartHeight` | Chart height in pixels | `150` | `400` |
 
-### Analysis Options
-
-| Option | Description | Default | Example |
-|--------|-------------|---------|---------|
-| `generateCharts` | Generate visual charts from metrics data | `false` | `true` |
 
 ## Atlas Monitoring Modes & Data Retention
 
@@ -252,7 +245,6 @@ Create charts and HTML dashboard:
 java -jar bin/AtlasClient.jar \
   --config=atlas-client.properties \
   --generateCharts=true \
-  --generateHtmlIndex=true \
   --darkMode=true \
   --chartWidth=800 \
   --chartHeight=400
@@ -265,8 +257,7 @@ Create visual charts from metrics data:
 ```bash
 java -jar bin/AtlasClient.jar \
   --config=atlas-client.properties \
-  --generateCharts=true \
-  --generateHtmlIndex=true
+  --generateCharts=true
 ```
 
 ### 4. Data Collection Only
@@ -319,8 +310,7 @@ Processing Options:
 Output Options:
   --exportCsv                 Export to CSV
   --detailedMetricsCsv        Export detailed CSV
-  --generateCharts            Generate chart visualizations
-  --generateHtmlIndex         Create HTML index
+  --generateCharts            Generate chart visualizations with HTML index
   --chartOutputDir=DIR        Chart output directory
   --darkMode                  Dark mode charts
   --chartWidth=PIXELS         Chart width
@@ -371,8 +361,7 @@ java -jar atlas-metrics-analyzer.jar \
 #!/bin/bash
 java -jar atlas-metrics-analyzer.jar \
   --config=weekly-report.properties \
-  --generateCharts=true \
-  --generateHtmlIndex=true
+  --generateCharts=true
 ```
 
 ### 4. Choose Appropriate Granularity
