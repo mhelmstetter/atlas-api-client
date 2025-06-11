@@ -22,7 +22,7 @@ import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 
-@Command(name = "MongoDBAtlasClient", mixinStandardHelpOptions = true, description = "MongoDB Atlas Logs Utility - Download compressed log files for a cluster", defaultValueProvider = PropertiesDefaultProvider.class)
+@Command(name = "AtlasLogsUtility", mixinStandardHelpOptions = true, description = "MongoDB Atlas Logs Utility - Download compressed log files for a cluster", defaultValueProvider = PropertiesDefaultProvider.class)
 public class AtlasLogsUtility implements Callable<Integer> {
 
 	private static final Logger logger = LoggerFactory.getLogger(AtlasLogsUtility.class);
