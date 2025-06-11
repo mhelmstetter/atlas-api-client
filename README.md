@@ -119,7 +119,6 @@ java -jar bin/AtlasClient.jar \
 | `mongodbUri` | MongoDB connection string for storing metrics | None | `mongodb://localhost:27017` |
 | `mongodbDatabase` | Database name for metrics storage | `atlas_metrics` | `my_metrics_db` |
 | `mongodbCollection` | Collection name for metrics data | `metrics` | `cluster_metrics` |
-| `dataLocation` | Local directory for file-based storage | `data` | `/path/to/metrics` |
 
 ### Metrics Collection
 
@@ -329,7 +328,6 @@ Output Options:
 
 General Options:
   --config=FILE               Configuration file
-  --dataLocation=DIR          Data storage directory
   -h, --help                  Show help
   -V, --version               Show version
 ```
