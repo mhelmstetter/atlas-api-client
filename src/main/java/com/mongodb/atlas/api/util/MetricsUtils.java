@@ -181,7 +181,6 @@ public class MetricsUtils {
             
             // Round to nearest day, minimum 1
             int roundedDays = Math.max(1, (int)Math.round(days));
-            logger.debug("Parsed period {} to {} days", periodStr, roundedDays);
             return roundedDays;
             
         } catch (Exception e) {
