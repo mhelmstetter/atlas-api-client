@@ -317,7 +317,7 @@ public abstract class BaseVisualReporter {
             if (series.getItemCount() > 0) {
                 Date firstDate = ((Millisecond)series.getDataItem(0).getPeriod()).getStart();
                 Date lastDate = ((Millisecond)series.getDataItem(series.getItemCount()-1).getPeriod()).getStart();
-                logger.info("Chart series data: {} points from {} to {} ({})",
+                logger.debug("Chart series data: {} points from {} to {} ({})",
                     series.getItemCount(), firstDate, lastDate, seriesName);
             }
         }
@@ -364,7 +364,7 @@ public abstract class BaseVisualReporter {
                         overallMaxDate = seriesMaxDate;
                     }
                     
-                    logger.info("Series '{}' time range: {} to {} ({} points)", 
+                    logger.debug("Series '{}' time range: {} to {} ({} points)", 
                             series.getKey(), seriesMinDate, seriesMaxDate, series.getItemCount());
                 }
             }
