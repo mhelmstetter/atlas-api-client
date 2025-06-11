@@ -2,95 +2,38 @@
 
 A comprehensive MongoDB Atlas API client for metrics collection, analysis, and reporting. This tool helps you understand your Atlas usage patterns, generate visual reports, and export data for further analysis.
 
+## Key Capabilities
+
+**🔗 Overcome Atlas Data Retention Limits**: Store collected metrics in MongoDB to analyze data beyond Atlas retention periods. For example, collect 1-minute granularity metrics and analyze them for weeks or months, even though Atlas only retains 1-minute data for 48 hours.
+
+**📊 Multi-granularity Analysis**: Collect high-resolution data when available (10-second for M40+ clusters) and store it for long-term analysis at any granularity level.
+
 ## Features
 
 - **📊 Metrics Collection**: Collect detailed metrics from Atlas clusters across multiple projects
+- **🗄️ MongoDB Storage**: Store metrics data in MongoDB for analysis beyond Atlas retention limits
 - **📈 Visual Reporting**: Generate charts and visualizations from collected metrics data
 - **📄 CSV Export**: Export metrics data to CSV format for analysis in external tools
 - **🗂️ Pattern Analysis**: Analyze usage patterns and trends over time
 - **🌙 Dark Mode Charts**: Support for dark mode chart generation
-- **🗄️ Data Storage**: Store metrics data locally for historical analysis
 - **🔧 Flexible Configuration**: Configurable via command line or properties files
 
 ## Operating Modes
 
-The Atlas Metrics Analyzer can operate in several different modes depending on your needs:
+### 🔄 **Live Collection Mode** (Default)
+Connects to Atlas API, collects fresh metrics data, and optionally processes/reports on it.
 
-### 1. 🔄 **Live Collection Mode** (Default)
-Connects to Atlas API and collects fresh metrics data, then processes and reports on it.
+### 💾 **Collection-Only Mode** 
+Collects and stores metrics data without processing - ideal for automated scheduled data gathering.
 
-```bash
-java -jar bin/AtlasClient.jar \
-  --apiPublicKey=your_key \
-  --apiPrivateKey=your_private_key \
-  --includeProjectNames=Production \
-  --generateCharts=true
-```
+### 📊 **Analysis Mode**
+Processes previously collected data without fetching new data from Atlas - useful for historical analysis.
 
-**Data Flow:**
-```
-Atlas API → Metrics Collection → Processing → Charts/CSV → Local Storage
-```
+### 🔍 **Report Generation**
+Creates charts, CSV exports, and HTML dashboards from stored data.
 
-### 2. 💾 **Collection-Only Mode**
-Collects and stores metrics data without processing - useful for automated data gathering.
-
-```bash
-java -jar bin/AtlasClient.jar \
-  --config=atlas-client.properties \
-  --collectOnly=true
-```
-
-**Data Flow:**
-```
-Atlas API → Metrics Collection → Local Storage (no processing)
-```
-
-### 3. 📊 **Analysis Mode**
-Processes previously collected data without fetching new data from Atlas.
-
-```bash
-java -jar bin/AtlasClient.jar \
-  --generateCharts=true \
-  --analyzePatterns=true \
-  --dataLocation=./stored-data
-```
-
-**Data Flow:**
-```
-Local Storage → Processing → Charts/CSV/Analysis
-```
-
-### 4. 🔍 **Report-Only Mode**
-Generates reports and visualizations from existing local data.
-
-```bash
-java -jar bin/AtlasClient.jar \
-  --exportCsv=true \
-  --generateCharts=true \
-  --generateHtmlIndex=true \
-  --dataLocation=./historical-data
-```
-
-**Data Flow:**
-```
-Local Storage → Report Generation → Charts/CSV/HTML
-```
-
-### 5. 📈 **Pattern Analysis Mode**
-Performs advanced analysis on collected data to identify trends and patterns.
-
-```bash
-java -jar bin/AtlasClient.jar \
-  --analyzePatterns=true \
-  --dataAvailabilityReport=true \
-  --dataLocation=./data
-```
-
-**Data Flow:**
-```
-Local Storage → Pattern Analysis → Trend Reports → CSV
-```
+### 📈 **Pattern Analysis**
+Performs advanced trend analysis and generates data availability reports.
 
 ## Quick Start
 
@@ -133,6 +76,11 @@ includeProjectNames=Production,Staging,Development
 # Metrics to collect
 metrics=CONNECTIONS,OPCOUNTER_QUERY,OPCOUNTER_INSERT,SYSTEM_NORMALIZED_CPU_USER
 
+# MongoDB Storage (optional - enables long-term retention)
+mongodbUri=mongodb://localhost:27017
+mongodbDatabase=atlas_metrics
+mongodbCollection=metrics
+
 # Output settings
 exportCsv=true
 generateCharts=true
@@ -154,17 +102,55 @@ java -jar bin/AtlasClient.jar \
   --exportCsv=true
 ```
 
-## Configuration Options
+## Configuration Reference
 
-### Atlas API Configuration
+### Required Configuration
 
-| Option | Description | Required |
-|--------|-------------|----------|
-| `apiPublicKey` | Atlas API public key | ✅ |
-| `apiPrivateKey` | Atlas API private key | ✅ |
-| `includeProjectNames` | Comma-separated list of project names to analyze | ✅ |
+| Option | Description | Example |
+|--------|-------------|---------|
+| `apiPublicKey` | Atlas API public key | `abcd1234` |
+| `apiPrivateKey` | Atlas API private key | `12345678-1234-1234-1234-123456789012` |
+| `includeProjectNames` | Comma-separated project names to analyze | `Production,Staging` |
 
-### Atlas Monitoring Modes & Data Retention
+### MongoDB Storage Configuration
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `mongodbUri` | MongoDB connection string for storing metrics | None | `mongodb://localhost:27017` |
+| `mongodbDatabase` | Database name for metrics storage | `atlas_metrics` | `my_metrics_db` |
+| `mongodbCollection` | Collection name for metrics data | `metrics` | `cluster_metrics` |
+| `dataLocation` | Local directory for file-based storage | `data` | `/path/to/metrics` |
+
+### Metrics Collection
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `metrics` | Comma-separated list of metrics to collect | `CONNECTIONS,OPCOUNTER_QUERY,OPCOUNTER_INSERT` | `SYSTEM_NORMALIZED_CPU_USER,CONNECTIONS` |
+| `period` | Time period for metrics collection (ISO 8601) | `PT1H` | `PT24H` (24 hours) |
+| `granularity` | Metrics granularity (ISO 8601) | `PT1M` | `PT10S` (10 seconds) |
+| `collectOnly` | Only collect metrics, don't process | `false` | `true` |
+
+### Output and Reporting
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `exportCsv` | Export metrics to CSV format | `false` | `true` |
+| `detailedMetricsCsv` | Export detailed metrics to CSV | `false` | `true` |
+| `generateCharts` | Generate visual charts | `false` | `true` |
+| `generateHtmlIndex` | Create HTML index of all charts | `false` | `true` |
+| `chartOutputDir` | Directory for chart output | `.` | `./reports` |
+| `darkMode` | Generate charts in dark mode | `false` | `true` |
+| `chartWidth` | Chart width in pixels | `300` | `800` |
+| `chartHeight` | Chart height in pixels | `150` | `400` |
+
+### Analysis Options
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `analyzePatterns` | Perform pattern analysis on collected data | `false` | `true` |
+| `dataAvailabilityReport` | Generate data availability report | `false` | `true` |
+
+## Atlas Monitoring Modes & Data Retention
 
 MongoDB Atlas provides different monitoring granularities based on your cluster sizes and retains data for different periods:
 
@@ -220,35 +206,6 @@ period=PT8760H  # 1 year
 granularity=P1D
 ```
 
-### Metrics Collection
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `metrics` | Comma-separated list of metrics to collect | `CONNECTIONS,OPCOUNTER_QUERY,OPCOUNTER_INSERT` |
-| `period` | Time period for metrics collection | `PT1H` (1 hour) |
-| `granularity` | Metrics granularity | `PT1M` (1 minute) |
-| `collectOnly` | Only collect metrics, don't process | `false` |
-
-### Output and Reporting
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `exportCsv` | Export metrics to CSV format | `false` |
-| `generateCharts` | Generate visual charts | `false` |
-| `generateHtmlIndex` | Create HTML index of all charts | `false` |
-| `chartOutputDir` | Directory for chart output | `.` (current directory) |
-| `darkMode` | Generate charts in dark mode | `false` |
-| `chartWidth` | Chart width in pixels | `300` |
-| `chartHeight` | Chart height in pixels | `150` |
-
-### Advanced Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `analyzePatterns` | Perform pattern analysis on collected data | `false` |
-| `dataAvailabilityReport` | Generate data availability report | `false` |
-| `dataLocation` | Directory for storing collected data | `data` |
-| `detailedMetricsCsv` | Export detailed metrics to CSV | `false` |
 
 ## Available Metrics
 
