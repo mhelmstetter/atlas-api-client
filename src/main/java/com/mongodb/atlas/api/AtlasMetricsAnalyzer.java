@@ -27,15 +27,15 @@ import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.PropertiesDefaultProvider;
 
 /**
- * Main entry point for the MongoDB Atlas API client
+ * Main entry point for the MongoDB Atlas metrics analyzer
  * Enhanced with metric storage, collection, and reporting from stored data
  */
-@Command(name = "MongoDBAtlasClient", mixinStandardHelpOptions = true, 
-    description = "MongoDB Atlas API client with storage and reporting capabilities", 
+@Command(name = "AtlasMetricsAnalyzer", mixinStandardHelpOptions = true, 
+    description = "MongoDB Atlas metrics analyzer for usage analysis and reporting", 
     defaultValueProvider = PropertiesDefaultProvider.class)
-public class MongoDBAtlasClient implements Callable<Integer> {
+public class AtlasMetricsAnalyzer implements Callable<Integer> {
     
-    private static final Logger logger = LoggerFactory.getLogger(MongoDBAtlasClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(AtlasMetricsAnalyzer.class);
     
     @Option(names = { "--apiPublicKey" }, description = "Atlas API public key", required = false)
     private String apiPublicKey;
@@ -315,8 +315,8 @@ public class MongoDBAtlasClient implements Callable<Integer> {
     }
     
     public static void main(String[] args) {
-        MongoDBAtlasClient client = new MongoDBAtlasClient();
-        Logger logger = LoggerFactory.getLogger(MongoDBAtlasClient.class);
+        AtlasMetricsAnalyzer client = new AtlasMetricsAnalyzer();
+        Logger logger = LoggerFactory.getLogger(AtlasMetricsAnalyzer.class);
 
         int exitCode = 0;
         try {

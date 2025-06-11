@@ -42,7 +42,7 @@
 							<transformers>
 								<transformer
 									implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-									<mainClass>com.mongodb.atlas.api.MongoDBAtlasClient</mainClass>
+									<mainClass>com.mongodb.atlas.api.AtlasMetricsAnalyzer</mainClass>
 								</transformer>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
 							</transformers>
@@ -112,6 +112,14 @@
 			<artifactId>slf4j-api</artifactId>
 			<version>2.0.11</version>
 		</dependency>
+		
+		<!-- MongoDB Atlas Autoscaler -->
+		<dependency>
+			<groupId>com.mongodb.atlas</groupId>
+			<artifactId>atlas-autoscaler</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+		
 		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
