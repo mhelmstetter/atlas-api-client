@@ -73,7 +73,7 @@ apiPrivateKey=your_atlas_private_key
 # Projects to analyze
 includeProjectNames=Production,Staging,Development
 
-# Metrics to collect
+# Metrics to collect (defaults: SYSTEM_NORMALIZED_CPU_USER,SYSTEM_MEMORY_USED,SYSTEM_MEMORY_FREE,DISK_PARTITION_IOPS_TOTAL)
 metrics=CONNECTIONS,OPCOUNTER_QUERY,OPCOUNTER_INSERT,SYSTEM_NORMALIZED_CPU_USER
 
 # MongoDB Storage (optional - enables long-term retention)
@@ -122,12 +122,17 @@ java -jar bin/AtlasClient.jar \
 
 ### Metrics Collection
 
-| Option | Description | Default | Example |
-|--------|-------------|---------|---------|
-| `metrics` | Comma-separated list of metrics to collect | `CONNECTIONS,OPCOUNTER_QUERY,OPCOUNTER_INSERT` | `SYSTEM_NORMALIZED_CPU_USER,CONNECTIONS` |
-| `period` | Time period for metrics collection (ISO 8601) | `PT1H` | `PT24H` (24 hours) |
-| `granularity` | Metrics granularity (ISO 8601) | `PT1M` | `PT10S` (10 seconds) |
-| `collectOnly` | Only collect metrics, don't process | `false` | `true` |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `metrics` | Comma-separated list of metrics to collect | `SYSTEM_NORMALIZED_CPU_USER,`<br>`SYSTEM_MEMORY_USED,`<br>`SYSTEM_MEMORY_FREE,`<br>`DISK_PARTITION_IOPS_TOTAL` |
+| `period` | Time period for metrics collection (ISO 8601) | `PT8H` (8 hours) |
+| `granularity` | Metrics granularity (ISO 8601) | `PT10S` (10 seconds) |
+| `collectOnly` | Only collect metrics, don't process | `false` |
+
+**Common metrics examples:**
+- System: `SYSTEM_NORMALIZED_CPU_USER`, `SYSTEM_MEMORY_USED`
+- Database: `CONNECTIONS`, `OPCOUNTER_QUERY`, `OPCOUNTER_INSERT`
+- Network: `NETWORK_BYTES_IN`, `NETWORK_BYTES_OUT`
 
 ### Output and Reporting
 
