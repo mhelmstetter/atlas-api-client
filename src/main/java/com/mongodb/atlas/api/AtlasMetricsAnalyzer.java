@@ -89,6 +89,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--darkMode" }, description = "Enable dark mode for charts and HTML", required = false, defaultValue = "true")
     private boolean darkMode;
     
+    @Option(names = { "--debug" }, description = "Enable debug logging for troubleshooting", required = false, defaultValue = "false")
+    private boolean debug;
+    
     // Storage options (automatically enabled when mongodbUri is provided)
     
     @Option(names = { "--collect" }, description = "Only collect and store metrics without processing or reporting", required = false, defaultValue = "false")
@@ -147,7 +150,8 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         
         // Initialize API client if not using storage-only mode
         if (!reportFromStorage) {
-            this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, 0);
+            int debugLevel = debug ? 1 : 0;
+            this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, debugLevel);
         }
         
         Map<String, ProjectMetricsResult> results = null;

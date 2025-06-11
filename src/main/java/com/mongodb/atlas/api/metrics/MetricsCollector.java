@@ -70,9 +70,15 @@ public class MetricsCollector {
 		this.storeMetrics = storeMetrics && metricsStorage != null;
 		this.collectOnly = collectOnly;
 
-		logger.info("Initialized metrics collector with {} metrics, period={}, granularity={}", metrics.size(), period,
-				granularity);
-		logger.info("Storage enabled: {}, Collect only mode: {}", this.storeMetrics, this.collectOnly);
+		logger.info("📊 Atlas Metrics Analyzer initialized");
+		logger.info("🎯 Collecting {} metrics over {} with {} granularity", 
+				metrics.size(), period, granularity);
+		if (this.storeMetrics) {
+			logger.info("💾 Storage enabled");
+		}
+		if (this.collectOnly) {
+			logger.info("📥 Collection-only mode enabled");
+		}
 
 		// Initialize timestamp caches if storage is enabled
 		if (this.storeMetrics) {
@@ -154,8 +160,7 @@ public class MetricsCollector {
 		// Get projects matching the specified names
 		Map<String, String> projectMap = apiClient.clusters().getProjects(includeProjectNames);
 
-		logger.info("Beginning to collect metrics for {} projects: {}", projectMap.size(),
-				String.join(", ", projectMap.keySet()));
+		logger.info("🚀 Starting metrics collection for {} projects", projectMap.size());
 
 		// Reset collection statistics
 		resetCollectionStats();
@@ -181,7 +186,7 @@ public class MetricsCollector {
 			String projectId = projectMap.get(projectName);
 
 			try {
-				logger.info("Starting collection for project: {} ({})", projectName, projectId);
+				logger.info("📁 Processing project: {}", projectName);
 
 				// Collect metrics for this project
 				ProjectCollectionResult collectionResult = collectProjectMetrics(projectName, projectId);
@@ -198,9 +203,11 @@ public class MetricsCollector {
 				}
 
 				// Log project summary
-				logger.info("Project {} collection complete: {} processes, {} data points collected, {} stored",
-						projectName, collectionResult.getProcessCount(), collectionResult.getDataPointsCollected(),
-						collectionResult.getDataPointsStored());
+				if (collectionResult.getDataPointsCollected() > 0) {
+					logger.info("✅ {} complete: {} data points collected", projectName, collectionResult.getDataPointsCollected());
+				} else {
+					logger.warn("⚠️  {} complete: No data points collected", projectName);
+				}
 
 			} catch (Exception e) {
 				logger.error("Error collecting metrics for project {}: {}", projectName, e.getMessage(), e);
@@ -226,7 +233,7 @@ public class MetricsCollector {
 		try {
 			// Get all processes for this project
 			List<Map<String, Object>> processes = apiClient.clusters().getProcesses(projectId);
-			logger.info("Collecting metrics for project: {} with {} processes", projectName, processes.size());
+			logger.debug("Collecting metrics for project: {} with {} processes", projectName, processes.size());
 
 			// Filter out config servers and mongos instances
 			List<Map<String, Object>> filteredProcesses = processes.stream().filter(process -> {
@@ -234,7 +241,7 @@ public class MetricsCollector {
 				return !typeName.startsWith("SHARD_CONFIG") && !typeName.equals("SHARD_MONGOS");
 			}).collect(Collectors.toList());
 
-			logger.info("Filtered to {} mongod processes for project {}", filteredProcesses.size(), projectName);
+			logger.debug("Filtered to {} mongod processes for project {}", filteredProcesses.size(), projectName);
 
 			result.setProcessCount(filteredProcesses.size());
 
@@ -256,13 +263,8 @@ public class MetricsCollector {
 						result.addDataPointsCollected(diskPoints);
 					}
 
-					// Log progress periodically
+					// Update progress
 					processedCount++;
-					if (processedCount % 5 == 0 || processedCount == filteredProcesses.size()) {
-						logger.info("Project {} progress: {} of {} processes complete ({}%)", projectName,
-								processedCount, filteredProcesses.size(),
-								Math.round((double) processedCount / filteredProcesses.size() * 100));
-					}
 				} catch (Exception e) {
 					// Log error but continue with other processes
 					logger.error("Error collecting metrics for process {}:{} in project {}: {}", hostname, port,
@@ -331,15 +333,17 @@ public class MetricsCollector {
 				List<Map<String, Object>> measurements;
 
 				// Use period days if we don't have a specific start time
-				logger.info("Fetching system metrics for {}:{} with period of {}", hostname, port, period);
+				logger.debug("Fetching system metrics for {}:{} with period of {}", hostname, port, period);
 
 				measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(projectId, hostname, port, systemMetrics,
 						granularity, period);
 
 				if (measurements == null || measurements.isEmpty()) {
-					logger.warn("{} {} -> No measurements data found", projectName, hostname + ":" + port);
+					logger.debug("{} {} -> No measurements data found", projectName, hostname + ":" + port);
 					return 0;
 				}
+				
+				logger.debug("{} {} -> Received {} measurements", projectName, hostname + ":" + port, measurements.size());
 
 				// Process each measurement
 				for (Map<String, Object> measurement : measurements) {
@@ -347,10 +351,12 @@ public class MetricsCollector {
 					List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
 
 					if (dataPoints == null || dataPoints.isEmpty()) {
-						logger.warn("{} {} -> No data points found for metric {}", projectName, hostname + ":" + port,
+						logger.debug("{} {} -> No data points found for metric {}", projectName, hostname + ":" + port,
 								metric);
 						continue;
 					}
+					
+					logger.debug("{} {} -> Metric {}: {} data points", projectName, hostname + ":" + port, metric, dataPoints.size());
 
 					// Count the data points
 					dataPointsCollected += dataPoints.size();
@@ -527,17 +533,15 @@ public class MetricsCollector {
 	 * Log collection statistics
 	 */
 	private void logCollectionStats() {
-		logger.info("Collection statistics:");
-		logger.info("  Total processes scanned: {}", totalProcessesScanned);
-		logger.info("  Total data points collected: {}", totalDataPointsCollected);
-
-		if (storeMetrics) {
-			logger.info("  Total data points stored: {}", totalDataPointsStored);
-		}
-
-		// Log per-project stats
-		for (Map.Entry<String, Integer> entry : projectDataPoints.entrySet()) {
-			logger.info("  Project {}: {} data points", entry.getKey(), entry.getValue());
+		if (totalDataPointsCollected > 0) {
+			logger.info("🎉 Collection complete: {} data points from {} processes", 
+					totalDataPointsCollected, totalProcessesScanned);
+			if (storeMetrics) {
+				logger.info("💾 {} data points stored to MongoDB", totalDataPointsStored);
+			}
+		} else {
+			logger.warn("⚠️  Collection complete: No data points collected from {} processes", totalProcessesScanned);
+			logger.warn("💡 Try using --debug to investigate the issue");
 		}
 	}
 

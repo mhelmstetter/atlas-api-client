@@ -318,6 +318,7 @@ Output Options:
 
 General Options:
   --config=FILE               Configuration file
+  --debug                     Enable debug logging for troubleshooting
   -h, --help                  Show help
   -V, --version               Show version
 ```
@@ -423,10 +424,16 @@ Data availability reports are automatically generated when MongoDB storage is en
 
 ### Debug Mode
 
-Enable debug logging:
+Enable debug logging for troubleshooting:
 ```bash
-java -Dlogging.level.com.mongodb.atlas=DEBUG -jar bin/AtlasClient.jar [options]
+java -jar bin/AtlasClient.jar --debug [other options]
 ```
+
+This provides detailed information about:
+- API requests and responses
+- Metrics collection per process
+- Data point counts per metric
+- Storage operations
 
 ### Getting Help
 
