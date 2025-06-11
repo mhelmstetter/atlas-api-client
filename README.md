@@ -12,6 +12,86 @@ A comprehensive MongoDB Atlas API client for metrics collection, analysis, and r
 - **🗄️ Data Storage**: Store metrics data locally for historical analysis
 - **🔧 Flexible Configuration**: Configurable via command line or properties files
 
+## Operating Modes
+
+The Atlas Metrics Analyzer can operate in several different modes depending on your needs:
+
+### 1. 🔄 **Live Collection Mode** (Default)
+Connects to Atlas API and collects fresh metrics data, then processes and reports on it.
+
+```bash
+java -jar bin/AtlasClient.jar \
+  --apiPublicKey=your_key \
+  --apiPrivateKey=your_private_key \
+  --includeProjectNames=Production \
+  --generateCharts=true
+```
+
+**Data Flow:**
+```
+Atlas API → Metrics Collection → Processing → Charts/CSV → Local Storage
+```
+
+### 2. 💾 **Collection-Only Mode**
+Collects and stores metrics data without processing - useful for automated data gathering.
+
+```bash
+java -jar bin/AtlasClient.jar \
+  --config=atlas-client.properties \
+  --collectOnly=true
+```
+
+**Data Flow:**
+```
+Atlas API → Metrics Collection → Local Storage (no processing)
+```
+
+### 3. 📊 **Analysis Mode**
+Processes previously collected data without fetching new data from Atlas.
+
+```bash
+java -jar bin/AtlasClient.jar \
+  --generateCharts=true \
+  --analyzePatterns=true \
+  --dataLocation=./stored-data
+```
+
+**Data Flow:**
+```
+Local Storage → Processing → Charts/CSV/Analysis
+```
+
+### 4. 🔍 **Report-Only Mode**
+Generates reports and visualizations from existing local data.
+
+```bash
+java -jar bin/AtlasClient.jar \
+  --exportCsv=true \
+  --generateCharts=true \
+  --generateHtmlIndex=true \
+  --dataLocation=./historical-data
+```
+
+**Data Flow:**
+```
+Local Storage → Report Generation → Charts/CSV/HTML
+```
+
+### 5. 📈 **Pattern Analysis Mode**
+Performs advanced analysis on collected data to identify trends and patterns.
+
+```bash
+java -jar bin/AtlasClient.jar \
+  --analyzePatterns=true \
+  --dataAvailabilityReport=true \
+  --dataLocation=./data
+```
+
+**Data Flow:**
+```
+Local Storage → Pattern Analysis → Trend Reports → CSV
+```
+
 ## Quick Start
 
 ### Prerequisites
@@ -83,6 +163,62 @@ java -jar bin/AtlasClient.jar \
 | `apiPublicKey` | Atlas API public key | ✅ |
 | `apiPrivateKey` | Atlas API private key | ✅ |
 | `includeProjectNames` | Comma-separated list of project names to analyze | ✅ |
+
+### Atlas Monitoring Modes & Data Retention
+
+MongoDB Atlas provides different monitoring granularities based on your cluster sizes and retains data for different periods:
+
+#### Premium Monitoring
+- **Automatically enabled** when you have at least one **M40 or larger** cluster in your project
+- **Applies to all clusters** in the project (even smaller ones)
+- Provides **10-second granularity** metrics
+- Remains enabled until you downgrade or terminate your last M40+ cluster
+
+#### Standard Monitoring
+- Available for clusters **smaller than M40**
+- Provides metrics at **1-minute minimum granularity**
+
+#### Data Retention Periods
+
+| **Granularity** | **Retention Period** | **Availability** |
+|-----------------|---------------------|------------------|
+| `PT10S` (10 seconds) | 8 hours | Premium monitoring only (M40+) |
+| `PT1M` (1 minute) | 48 hours | All clusters |
+| `PT5M` (5 minutes) | 48 hours | All clusters |
+| `PT1H` (1 hour) | 63 days | All clusters |
+| `P1D` (1 day) | Forever | All clusters |
+
+> **⚠️ Important**: 10-second granularity (`PT10S`) is only available with premium monitoring (M40+ clusters) and data is retained for only 8 hours.
+
+#### Choosing Period and Granularity
+
+**For Recent Analysis (last 8 hours):**
+```properties
+# Premium monitoring clusters only
+period=PT8H
+granularity=PT10S
+```
+
+**For Short-term Analysis (last 2 days):**
+```properties
+# All clusters
+period=PT48H
+granularity=PT1M
+```
+
+**For Long-term Analysis (last 60 days):**
+```properties
+# All clusters - use hourly data for better performance
+period=PT1440H  # 60 days
+granularity=PT1H
+```
+
+**For Historical Analysis:**
+```properties
+# All clusters - daily aggregates available indefinitely
+period=PT8760H  # 1 year
+granularity=P1D
+```
 
 ### Metrics Collection
 
@@ -285,7 +421,27 @@ java -jar atlas-metrics-analyzer.jar \
   --analyzePatterns=true
 ```
 
-### 4. Monitor Data Availability
+### 4. Choose Appropriate Granularity
+Match granularity to your analysis needs and data retention:
+```properties
+# For real-time monitoring (M40+ clusters only)
+period=PT8H
+granularity=PT10S
+
+# For recent troubleshooting (all clusters)
+period=PT24H
+granularity=PT1M
+
+# For trend analysis (all clusters)
+period=PT720H  # 30 days
+granularity=PT1H
+
+# For long-term reporting (all clusters)
+period=PT8760H  # 1 year
+granularity=P1D
+```
+
+### 5. Monitor Data Availability
 Regularly check data completeness:
 ```bash
 java -jar bin/AtlasClient.jar \
@@ -307,12 +463,23 @@ java -jar bin/AtlasClient.jar \
    - Verify metrics names are correct
    - Check cluster state (metrics only available for active clusters)
 
-3. **Chart Generation Issues**
+3. **Granularity and Data Retention Issues**
+   - **"No data for PT10S"**: 10-second data requires M40+ clusters (premium monitoring)
+   - **"Data too old"**: Check retention limits - 10s data kept only 8 hours, 1m data kept 48 hours
+   - **"Invalid granularity"**: Use `PT10S`, `PT1M`, `PT5M`, `PT1H`, or `P1D`
+   - **Poor performance**: Use coarser granularity (`PT1H` or `P1D`) for longer periods
+
+4. **Premium Monitoring Issues**
+   - **Expected 10s data but getting 1m**: Verify you have at least one M40+ cluster in the project
+   - **Inconsistent granularity**: Premium monitoring applies to entire project, not individual clusters
+   - **Missing recent data**: Check if M40+ cluster was recently created/terminated
+
+5. **Chart Generation Issues**
    - Ensure output directory is writable
    - Check available disk space
    - Verify chart dimensions are reasonable
 
-4. **Memory Issues**
+6. **Memory Issues**
    - For large datasets, increase JVM memory: `java -Xmx4g -jar ...`
    - Consider using smaller time periods or fewer metrics
 
