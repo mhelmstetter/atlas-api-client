@@ -14,7 +14,6 @@ A comprehensive MongoDB Atlas API client for metrics collection, analysis, and r
 - **🗄️ MongoDB Storage**: Store metrics data in MongoDB for analysis beyond Atlas retention limits
 - **📈 Visual Reporting**: Generate charts and visualizations from collected metrics data
 - **📄 CSV Export**: Export metrics data to CSV format for analysis in external tools
-- **🗂️ Pattern Analysis**: Analyze usage patterns and trends over time
 - **🌙 Dark Mode Charts**: Support for dark mode chart generation
 - **🔧 Flexible Configuration**: Configurable via command line or properties files
 
@@ -32,8 +31,6 @@ Processes previously collected data without fetching new data from Atlas - usefu
 ### 🔍 **Report Generation**
 Creates charts, CSV exports, and HTML dashboards from stored data.
 
-### 📈 **Pattern Analysis**
-Performs advanced trend analysis and generates data availability reports.
 
 ## Quick Start
 
@@ -127,7 +124,7 @@ java -jar bin/AtlasClient.jar \
 | `metrics` | Comma-separated list of metrics to collect | `SYSTEM_NORMALIZED_CPU_USER,`<br>`SYSTEM_MEMORY_USED,`<br>`SYSTEM_MEMORY_FREE,`<br>`DISK_PARTITION_IOPS_TOTAL` |
 | `period` | Time period for metrics collection (ISO 8601) | `PT8H` (8 hours) |
 | `granularity` | Metrics granularity (ISO 8601) | `PT10S` (10 seconds) |
-| `collectOnly` | Only collect metrics, don't process | `false` |
+| `collect` | Only collect and store metrics without processing or reporting | `false` |
 
 **Common metrics examples:**
 - System: `SYSTEM_NORMALIZED_CPU_USER`, `SYSTEM_MEMORY_USED`
@@ -151,8 +148,7 @@ java -jar bin/AtlasClient.jar \
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
-| `analyzePatterns` | Perform pattern analysis on collected data | `false` | `true` |
-| `dataAvailabilityReport` | Generate data availability report | `false` | `true` |
+| `generateCharts` | Generate visual charts from metrics data | `false` | `true` |
 
 ## Atlas Monitoring Modes & Data Retention
 
@@ -262,15 +258,15 @@ java -jar bin/AtlasClient.jar \
   --chartHeight=400
 ```
 
-### 3. Historical Analysis
+### 3. Generate Charts
 
-Analyze patterns in stored data:
+Create visual charts from metrics data:
 
 ```bash
 java -jar bin/AtlasClient.jar \
   --config=atlas-client.properties \
-  --analyzePatterns=true \
-  --dataAvailabilityReport=true
+  --generateCharts=true \
+  --generateHtmlIndex=true
 ```
 
 ### 4. Data Collection Only
@@ -280,7 +276,7 @@ Just collect and store data for later analysis:
 ```bash
 java -jar bin/AtlasClient.jar \
   --config=atlas-client.properties \
-  --collectOnly=true
+  --collect=true
 ```
 
 ## Output Files
@@ -317,9 +313,8 @@ Metrics Options:
   --granularity=DURATION      Metrics granularity (ISO 8601 duration)
 
 Processing Options:
-  --collectOnly               Only collect, don't process
-  --analyzePatterns           Analyze usage patterns
-  --dataAvailabilityReport    Generate availability report
+  --collect                   Only collect and store, don't process
+  --generateCharts            Generate visual charts
 
 Output Options:
   --exportCsv                 Export to CSV
@@ -370,15 +365,14 @@ Set up regular metrics collection:
 #!/bin/bash
 java -jar atlas-metrics-analyzer.jar \
   --config=daily-collection.properties \
-  --collectOnly=true
+  --collect=true
 
 # Weekly reporting script  
 #!/bin/bash
 java -jar atlas-metrics-analyzer.jar \
   --config=weekly-report.properties \
   --generateCharts=true \
-  --generateHtmlIndex=true \
-  --analyzePatterns=true
+  --generateHtmlIndex=true
 ```
 
 ### 4. Choose Appropriate Granularity
@@ -402,12 +396,7 @@ granularity=P1D
 ```
 
 ### 5. Monitor Data Availability
-Regularly check data completeness:
-```bash
-java -jar bin/AtlasClient.jar \
-  --config=atlas-client.properties \
-  --dataAvailabilityReport=true
-```
+Data availability reports are automatically generated when MongoDB storage is enabled. Check the generated `data-availability-report.csv` file for completeness information.
 
 ## Troubleshooting
 

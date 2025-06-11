@@ -68,11 +68,6 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--exportCsv" }, description = "Export project summary to CSV file with default name", required = false, defaultValue = "false")
     private boolean exportCsv;
     
-    @Option(names = { "--analyzePatterns" }, description = "Enable pattern analysis", required = false, defaultValue = "false")
-    private boolean analyzePatterns;
-    
-    @Option(names = { "--exportPatternsCsvFilename" }, description = "Export pattern analysis to CSV file", required = false)
-    private String exportPatternsCsvFilename;
     
     // NEW: Export detailed metrics CSV for each project
     @Option(names = { "--exportDetailedMetricsCsv" }, description = "Export detailed metrics CSV for each project", required = false, defaultValue = "false")
@@ -80,6 +75,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     
     @Option(names = { "--chartOutputDir" }, description = "Directory for charts", required = false, defaultValue = "charts")
     private String chartOutputDir;
+    
+    @Option(names = { "--generateCharts" }, description = "Generate visual charts from metrics data", required = false, defaultValue = "false")
+    private boolean generateCharts;
     
     @Option(names = { "--generateHtmlIndex" }, description = "Generate HTML index of all charts", required = false, defaultValue = "true")
     private boolean generateHtmlIndex;
@@ -95,8 +93,8 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     
     // Storage options (automatically enabled when mongodbUri is provided)
     
-    @Option(names = { "--collectOnly" }, description = "Only collect and store metrics without processing", required = false, defaultValue = "false")
-    private boolean collectOnly;
+    @Option(names = { "--collect" }, description = "Only collect and store metrics without processing or reporting", required = false, defaultValue = "false")
+    private boolean collect;
     
     @Option(names = { "--mongodbUri" }, description = "MongoDB connection URI for metrics storage", required = false)
     private String mongodbUri;
@@ -107,12 +105,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--mongodbCollection" }, description = "MongoDB collection name for metrics storage", required = false, defaultValue = "metrics")
     private String mongodbCollection;
     
-    // NEW: Reporting options
     @Option(names = { "--reportFromStorage" }, description = "Generate report from stored data instead of API", required = false, defaultValue = "false")
     private boolean reportFromStorage;
     
-    @Option(names = { "--dataAvailabilityReport" }, description = "Generate data availability report", required = false, defaultValue = "false")
-    private boolean dataAvailabilityReport;
     
     // Service components
     private AtlasApiClient apiClient;
@@ -136,7 +131,7 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         
         // Initialize metrics storage if needed
         boolean enableStorage = (mongodbUri != null && !mongodbUri.isEmpty());
-        if (enableStorage || reportFromStorage || dataAvailabilityReport) {
+        if (enableStorage || reportFromStorage) {
             if (mongodbUri == null || mongodbUri.isEmpty()) {
                 logger.error("MongoDB URI is required for storage operations");
                 return 1;
@@ -159,24 +154,12 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         
         Map<String, ProjectMetricsResult> results = null;
         
-        // Data availability report mode
-        if (dataAvailabilityReport) {
-            logger.info("Generating data availability report...");
-            this.metricsReporter = new MetricsReporter(metricsStorage, metrics, analyzePatterns);
-            metricsReporter.generateDataAvailabilityReport(includeProjectNames);
-            
-            // Close storage and exit
-            if (metricsStorage != null) {
-                metricsStorage.close();
-            }
-            return 0;
-        }
         
         // Report from storage mode
         if (reportFromStorage) {
             logger.info("Generating report from stored data...");
             
-            this.metricsReporter = new MetricsReporter(metricsStorage, metrics, analyzePatterns);
+            this.metricsReporter = new MetricsReporter(metricsStorage, metrics, false);
             
             // Use reportPeriod if specified, otherwise use all available data (null)
             String effectiveReportPeriod = reportPeriod != null ? reportPeriod : null;
@@ -188,8 +171,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
             
             results = metricsReporter.generateProjectMetricsReport(includeProjectNames, effectiveReportPeriod);
             
-            // Generate visualizations from stored data if pattern analysis is enabled
-            if (analyzePatterns) {
+            
+            // Generate charts from stored data if requested
+            if (generateCharts) {
                 logger.info("Generating visualizations from stored data...");
                 StorageVisualReporter storageReporter = new StorageVisualReporter(
                         metricsStorage, chartOutputDir, chartWidth, chartHeight, darkMode);
@@ -212,19 +196,32 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
                 
                 logger.info("Visualizations from stored data generated in directory: {}", chartOutputDir);
             }
+            
+            // Generate data availability report when storage is available
+            if (metricsStorage != null) {
+                logger.info("Generating data availability report...");
+                metricsReporter.generateDataAvailabilityReport(includeProjectNames);
+            }
         } 
         // API-based collection and processing mode
         else {
             // Initialize the metrics collector with storage option
             this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
-                    metricsStorage, enableStorage, collectOnly);
+                    metricsStorage, enableStorage, collect);
             
             // Collect metrics for all projects
             results = metricsCollector.collectMetrics(includeProjectNames);
             
-            // If in collect-only mode, we're done
-            if (collectOnly) {
-                logger.info("Collection complete. Skipping processing and visualization in collect-only mode.");
+            // If in collect-only mode, generate data availability report if storage is enabled, then exit
+            if (collect) {
+                logger.info("Collection complete. Skipping processing and reporting in collect-only mode.");
+                
+                // Generate data availability report when storage is available
+                if (metricsStorage != null) {
+                    logger.info("Generating data availability report...");
+                    this.metricsReporter = new MetricsReporter(metricsStorage, metrics, false);
+                    metricsReporter.generateDataAvailabilityReport(includeProjectNames);
+                }
                 
                 // Close the metrics storage if used
                 if (metricsStorage != null) {
@@ -234,9 +231,10 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
                 return 0;
             }
             
-            // Generate visualizations if pattern analysis is enabled
-            if (analyzePatterns) {
-                // Initialize ApiVisualReporter with the new class hierarchy
+            
+            // Generate charts from API data if requested
+            if (generateCharts) {
+                logger.info("Generating visualizations from API data...");
                 ApiVisualReporter reporter = new ApiVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
                 
                 // Generate combined charts for each project and metric
@@ -256,20 +254,21 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
                 logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
                         chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");
             }
+            
+            // Generate data availability report when storage is available
+            if (metricsStorage != null) {
+                logger.info("Generating data availability report...");
+                this.metricsReporter = new MetricsReporter(metricsStorage, metrics, false);
+                metricsReporter.generateDataAvailabilityReport(includeProjectNames);
+            }
         }
         
         // CHANGED: Export summary CSV with default filename
         if (results != null && exportCsv) {
             String defaultSummaryFilename = "atlas-metrics-summary.csv";
-            CsvExporter exporter = new CsvExporter(metrics, analyzePatterns);
+            CsvExporter exporter = new CsvExporter(metrics, false);
             exporter.exportProjectMetricsToCSV(results, defaultSummaryFilename);
             logger.info("Project summary exported to: {}", defaultSummaryFilename);
-        }
-        
-        // Export pattern analysis to CSV if enabled and filename was provided
-        if (results != null && analyzePatterns && exportPatternsCsvFilename != null && !exportPatternsCsvFilename.isEmpty()) {
-            CsvExporter exporter = new CsvExporter(metrics);
-            exporter.exportPatternAnalysisToCSV(results, exportPatternsCsvFilename);
         }
         
         // NEW: Export detailed metrics CSV for each project
