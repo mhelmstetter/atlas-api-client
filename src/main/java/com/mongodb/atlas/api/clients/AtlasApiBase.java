@@ -545,7 +545,7 @@ public class AtlasApiBase {
             }
         }
         
-        logger.info("API request stats: {} total, {} in last minute, {} projects",
+        logger.debug("API request stats: {} total, {} in last minute, {} projects",
                 totalRequests, requestsInLastMinute, projectRequestCounts.size());
     }
     

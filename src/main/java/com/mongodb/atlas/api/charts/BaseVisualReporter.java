@@ -150,7 +150,7 @@ public abstract class BaseVisualReporter {
                 .mapToInt(s -> ((TimeSeries)s).getItemCount())
                 .sum();
         
-        logger.info("Creating chart for {}: {} series, {} data points (optimized from {})", 
+        logger.debug("Creating chart for {}: {} series, {} data points (optimized from {})", 
             metricName, 
             optimizedDataset.getSeriesCount(),
             totalPointsAfter,
@@ -224,11 +224,6 @@ public abstract class BaseVisualReporter {
             optimizedSeries.add(originalSeries.getDataItem(originalCount - 1));
         }
         
-        logger.debug("Optimized series '{}' from {} to {} points ({}% reduction)", 
-                originalSeries.getKey(), 
-                originalCount, 
-                optimizedSeries.getItemCount(),
-                Math.round((1.0 - (double)optimizedSeries.getItemCount() / originalCount) * 100));
         
         return optimizedSeries;
     }
@@ -313,13 +308,6 @@ public abstract class BaseVisualReporter {
         if (series.getItemCount() > 0) {
             dataset.addSeries(series);
             
-            // Debug logging
-            if (series.getItemCount() > 0) {
-                Date firstDate = ((Millisecond)series.getDataItem(0).getPeriod()).getStart();
-                Date lastDate = ((Millisecond)series.getDataItem(series.getItemCount()-1).getPeriod()).getStart();
-                logger.debug("Chart series data: {} points from {} to {} ({})",
-                    series.getItemCount(), firstDate, lastDate, seriesName);
-            }
         }
     }
     
@@ -364,8 +352,6 @@ public abstract class BaseVisualReporter {
                         overallMaxDate = seriesMaxDate;
                     }
                     
-                    logger.debug("Series '{}' time range: {} to {} ({} points)", 
-                            series.getKey(), seriesMinDate, seriesMaxDate, series.getItemCount());
                 }
             }
             
@@ -373,7 +359,7 @@ public abstract class BaseVisualReporter {
                 long diffHours = (overallMaxDate.getTime() - overallMinDate.getTime()) / (1000 * 60 * 60);
                 long diffDays = diffHours / 24;
                 
-                logger.info("Chart for {} overall time range: {} to {} ({} hours, {} days, {} total points, requested period: {})", 
+                logger.debug("Chart for {} overall time range: {} to {} ({} hours, {} days, {} total points, requested period: {})", 
                         metricName, overallMinDate, overallMaxDate, diffHours, diffDays, totalDataPoints, period);
                 
                 // Parse expected duration for comparison
