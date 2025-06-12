@@ -328,49 +328,46 @@ public class MetricsCollector {
 						}
 					}
 				}
+			}
 
-				// Now use either the explicit start time (if we have it) or the period
-				List<Map<String, Object>> measurements;
+			// Fetch measurements from Atlas API
+			logger.debug("Fetching system metrics for {}:{} with period of {}", hostname, port, period);
 
-				// Use period days if we don't have a specific start time
-				logger.debug("Fetching system metrics for {}:{} with period of {}", hostname, port, period);
+			List<Map<String, Object>> measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(projectId, hostname, port, systemMetrics,
+					granularity, period);
 
-				measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(projectId, hostname, port, systemMetrics,
-						granularity, period);
+			if (measurements == null || measurements.isEmpty()) {
+				logger.debug("{} {} -> No measurements data found", projectName, hostname + ":" + port);
+				return 0;
+			}
+			
+			logger.debug("{} {} -> Received {} measurements", projectName, hostname + ":" + port, measurements.size());
 
-				if (measurements == null || measurements.isEmpty()) {
-					logger.debug("{} {} -> No measurements data found", projectName, hostname + ":" + port);
-					return 0;
+			// Process each measurement
+			for (Map<String, Object> measurement : measurements) {
+				String metric = (String) measurement.get("name");
+				List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+
+				if (dataPoints == null || dataPoints.isEmpty()) {
+					logger.debug("{} {} -> No data points found for metric {}", projectName, hostname + ":" + port,
+							metric);
+					continue;
 				}
 				
-				logger.debug("{} {} -> Received {} measurements", projectName, hostname + ":" + port, measurements.size());
+				logger.debug("{} {} -> Metric {}: {} data points", projectName, hostname + ":" + port, metric, dataPoints.size());
 
-				// Process each measurement
-				for (Map<String, Object> measurement : measurements) {
-					String metric = (String) measurement.get("name");
-					List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
+				// Count the data points
+				dataPointsCollected += dataPoints.size();
 
-					if (dataPoints == null || dataPoints.isEmpty()) {
-						logger.debug("{} {} -> No data points found for metric {}", projectName, hostname + ":" + port,
-								metric);
-						continue;
-					}
-					
-					logger.debug("{} {} -> Metric {}: {} data points", projectName, hostname + ":" + port, metric, dataPoints.size());
+				// Store the metrics if storage is enabled
+				if (storeMetrics && metricsStorage != null) {
+					int stored = metricsStorage.storeMetrics(projectName, hostname, port, null, metric, dataPoints);
+					result.addDataPointsStored(stored);
+				}
 
-					// Count the data points
-					dataPointsCollected += dataPoints.size();
-
-					// Store the metrics if storage is enabled
-					if (storeMetrics && metricsStorage != null) {
-						int stored = metricsStorage.storeMetrics(projectName, hostname, port, null, metric, dataPoints);
-						result.addDataPointsStored(stored);
-					}
-
-					// If not in collect-only mode, process the measurements for the result
-					if (!collectOnly) {
-						processMetricData(metric, dataPoints, hostname + ":" + port, projectName, projectId);
-					}
+				// If not in collect-only mode, process the measurements for the result
+				if (!collectOnly) {
+					processMetricData(metric, dataPoints, hostname + ":" + port, projectName, projectId);
 				}
 			}
 		} catch (Exception e) {

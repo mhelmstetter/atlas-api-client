@@ -213,4 +213,107 @@ public class MetricsUtils {
             }
         }
     }
+    
+    /**
+     * Validate period and granularity against Atlas retention limits
+     * Returns null if valid, or error message if invalid
+     */
+    public static String validateAtlasRetentionLimits(String period, String granularity) {
+        try {
+            // Parse period - handle both Duration (PT24H) and Period (P1D) formats
+            long periodHours;
+            try {
+                java.time.Duration periodDuration = java.time.Duration.parse(period);
+                periodHours = periodDuration.toHours();
+            } catch (Exception e) {
+                // Try parsing as Period (P1D, P7D, etc.)
+                java.time.Period periodObj = java.time.Period.parse(period);
+                periodHours = periodObj.getDays() * 24L + periodObj.getMonths() * 30 * 24L + periodObj.getYears() * 365 * 24L;
+            }
+            
+            java.time.Duration granularityDuration = java.time.Duration.parse(granularity);
+            long granularityMinutes = granularityDuration.toMinutes();
+            
+            // Atlas retention limits
+            if (granularityMinutes == 0 && granularity.equals("PT10S")) {
+                // 10-second granularity: 8 hours retention
+                if (periodHours > 8) {
+                    return "10-second granularity (PT10S) data is only retained for 8 hours. " +
+                           "Maximum period: PT8H. Current period: " + period + " (" + periodHours + " hours)";
+                }
+            } else if (granularityMinutes == 1) {
+                // 1-minute granularity: 48 hours retention
+                if (periodHours > 48) {
+                    return "1-minute granularity (PT1M) data is only retained for 48 hours. " +
+                           "Maximum period: PT48H. Current period: " + period + " (" + periodHours + " hours)";
+                }
+            } else if (granularityMinutes == 5) {
+                // 5-minute granularity: 48 hours retention  
+                if (periodHours > 48) {
+                    return "5-minute granularity (PT5M) data is only retained for 48 hours. " +
+                           "Maximum period: PT48H. Current period: " + period + " (" + periodHours + " hours)";
+                }
+            } else if (granularityMinutes == 60) {
+                // 1-hour granularity: 63 days retention
+                if (periodHours > (63 * 24)) {
+                    return "1-hour granularity (PT1H) data is only retained for 63 days. " +
+                           "Maximum period: PT1512H. Current period: " + period + " (" + periodHours + " hours)";
+                }
+            }
+            // P1D (daily) granularity has unlimited retention
+            
+            return null; // Valid
+            
+        } catch (Exception e) {
+            // Provide helpful error messages for common mistakes
+            if (period.matches("PT\\d+D")) {
+                return "Invalid period format: '" + period + "'. For days, use 'P' not 'PT'. Try: '" + 
+                       period.replace("PT", "P") + "' instead.";
+            }
+            return "Invalid period or granularity format: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * Get the best granularity for a given period that fits Atlas retention limits
+     */
+    public static String getOptimalGranularityForPeriod(String period) {
+        try {
+            // Parse period - handle both Duration (PT24H) and Period (P1D) formats
+            long periodHours;
+            try {
+                java.time.Duration periodDuration = java.time.Duration.parse(period);
+                periodHours = periodDuration.toHours();
+            } catch (Exception e) {
+                // Try parsing as Period (P1D, P7D, etc.)
+                java.time.Period periodObj = java.time.Period.parse(period);
+                periodHours = periodObj.getDays() * 24L + periodObj.getMonths() * 30 * 24L + periodObj.getYears() * 365 * 24L;
+            }
+            
+            if (periodHours <= 8) {
+                return "PT10S"; // 10-second granularity for very short periods
+            } else if (periodHours <= 48) {
+                return "PT1M";  // 1-minute granularity for short periods
+            } else if (periodHours <= (63 * 24)) {
+                return "PT1H";  // 1-hour granularity for medium periods
+            } else {
+                return "P1D";   // Daily granularity for long periods
+            }
+        } catch (Exception e) {
+            logger.warn("Error parsing period {}, defaulting to PT1H granularity", period);
+            return "PT1H";
+        }
+    }
+    
+    /**
+     * Check if we should use MongoDB storage instead of Atlas API for the given period/granularity
+     */
+    public static boolean shouldUseStorageForPeriod(String period, String granularity, boolean storageAvailable) {
+        if (!storageAvailable) {
+            return false;
+        }
+        
+        String validationError = validateAtlasRetentionLimits(period, granularity);
+        return validationError != null; // Use storage if Atlas API would fail
+    }
 }
