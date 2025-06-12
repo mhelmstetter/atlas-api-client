@@ -105,19 +105,17 @@ public class StorageVisualReporter extends BaseVisualReporter {
         TimeSeriesCollection dataset = new TimeSeriesCollection();
         
         try {
-            logger.info("Querying storage for project={}, metric={}, timeRange={} to {}", 
-                    projectName, metricName, startTime, endTime);
-            
             // Calculate expected duration
             long hours = java.time.temporal.ChronoUnit.HOURS.between(startTime, endTime);
             long days = java.time.temporal.ChronoUnit.DAYS.between(startTime, endTime);
-            logger.info("Expected data duration: {} hours ({} days)", hours, days);
+            logger.debug("Querying storage for project={}, metric={}, timeRange={} to {} (expected: {} hours)", 
+                    projectName, metricName, startTime, endTime, hours);
             
             // Get all stored data for this project and metric
             List<Document> documents = metricsStorage.getMetrics(
                     projectName, null, metricName, startTime, endTime);
             
-            logger.info("Found {} stored data points for project {} metric {}", 
+            logger.debug("Found {} stored data points for project {} metric {}", 
                     documents.size(), projectName, metricName);
             
             if (documents.isEmpty()) {
@@ -142,7 +140,7 @@ public class StorageVisualReporter extends BaseVisualReporter {
             
             if (earliestTimestamp != null && latestTimestamp != null) {
                 long actualHours = (latestTimestamp.getTime() - earliestTimestamp.getTime()) / (1000 * 60 * 60);
-                logger.info("Actual data time range: {} to {} ({} hours)", 
+                logger.debug("Actual data time range: {} to {} ({} hours)", 
                         earliestTimestamp, latestTimestamp, actualHours);
                 
                 // Check if we got the expected time range
@@ -154,7 +152,7 @@ public class StorageVisualReporter extends BaseVisualReporter {
             // Group by host and partition (if applicable)
             Map<String, List<Document>> seriesGroups = groupDocumentsForSeries(documents);
             
-            logger.info("Grouped data into {} series", seriesGroups.size());
+            logger.debug("Grouped data into {} series", seriesGroups.size());
             
             // Create time series for each group
             for (Map.Entry<String, List<Document>> entry : seriesGroups.entrySet()) {
@@ -172,12 +170,22 @@ public class StorageVisualReporter extends BaseVisualReporter {
                         Date seriesEnd = ((Millisecond)timeSeries.getDataItem(timeSeries.getItemCount()-1).getPeriod()).getStart();
                         long seriesHours = (seriesEnd.getTime() - seriesStart.getTime()) / (1000 * 60 * 60);
                         
-                        logger.info("Added series '{}' with {} data points, time range: {} to {} ({} hours)", 
+                        logger.debug("Added series '{}' with {} data points, time range: {} to {} ({} hours)", 
                                 seriesName, timeSeries.getItemCount(), seriesStart, seriesEnd, seriesHours);
                     }
                 } else {
                     logger.warn("Series '{}' has no data points", seriesName);
                 }
+            }
+            
+            // Log summary instead of per-series details
+            if (dataset.getSeriesCount() > 0) {
+                int totalDataPoints = 0;
+                for (int i = 0; i < dataset.getSeriesCount(); i++) {
+                    totalDataPoints += dataset.getSeries(i).getItemCount();
+                }
+                logger.info("Created {} time series with {} total data points", 
+                        dataset.getSeriesCount(), totalDataPoints);
             }
             
         } catch (Exception e) {

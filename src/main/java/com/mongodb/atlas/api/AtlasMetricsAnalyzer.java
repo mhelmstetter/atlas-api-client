@@ -18,6 +18,7 @@ import com.mongodb.atlas.api.metrics.MetricsCollector;
 import com.mongodb.atlas.api.metrics.MetricsReporter;
 import com.mongodb.atlas.api.metrics.MetricsStorage;
 import com.mongodb.atlas.api.metrics.ProjectMetricsResult;
+import com.mongodb.atlas.api.util.MetricsUtils;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -205,12 +206,48 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         } 
         // API-based collection and processing mode
         else {
-            // Initialize the metrics collector with storage option
-            this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
-                    metricsStorage, enableStorage, collect);
+            // Validate period and granularity against Atlas retention limits
+            String validationError = MetricsUtils.validateAtlasRetentionLimits(period, granularity);
+            boolean shouldUseStorage = MetricsUtils.shouldUseStorageForPeriod(period, granularity, enableStorage);
             
-            // Collect metrics for all projects
-            results = metricsCollector.collectMetrics(includeProjectNames);
+            if (validationError != null) {
+                if (shouldUseStorage) {
+                    logger.warn("⚠️  Atlas API limitation: {}", validationError);
+                    logger.info("🔄 Switching to storage-based reporting for this period/granularity combination");
+                    
+                    // Switch to storage-based reporting
+                    if (metricsStorage == null) {
+                        logger.error("❌ Cannot use storage-based reporting: MongoDB URI not provided");
+                        logger.error("💡 To analyze data beyond Atlas retention limits, provide --mongodbUri");
+                        logger.error("💡 Or adjust to compatible period/granularity:");
+                        logger.error("   • For PT1M granularity: Use period ≤ PT48H (48 hours)");
+                        logger.error("   • For PT1H granularity: Use period ≤ PT1512H (63 days)");  
+                        logger.error("   • For P1D granularity: Any period supported");
+                        logger.error("   • Or try: --granularity={}", MetricsUtils.getOptimalGranularityForPeriod(period));
+                        return 1;
+                    }
+                    
+                    // Use storage-based reporting instead
+                    logger.info("Generating report from stored data...");
+                    this.metricsReporter = new MetricsReporter(metricsStorage, metrics, false);
+                    results = metricsReporter.generateProjectMetricsReport(includeProjectNames, period);
+                } else {
+                    logger.error("❌ {}", validationError);
+                    logger.error("💡 Use compatible period/granularity combinations:");
+                    logger.error("   • For PT1M granularity: Use period ≤ PT48H (48 hours)");
+                    logger.error("   • For PT1H granularity: Use period ≤ PT1512H (63 days)");
+                    logger.error("   • For P1D granularity: Any period supported");
+                    logger.error("   • Or try: --granularity={}", MetricsUtils.getOptimalGranularityForPeriod(period));
+                    return 1;
+                }
+            } else {
+                // Initialize the metrics collector with storage option
+                this.metricsCollector = new MetricsCollector(apiClient, metrics, period, granularity, 
+                        metricsStorage, enableStorage, collect);
+                
+                // Collect metrics for all projects
+                results = metricsCollector.collectMetrics(includeProjectNames);
+            }
             
             // If in collect-only mode, generate data availability report if storage is enabled, then exit
             if (collect) {
@@ -232,22 +269,49 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
             }
             
             
-            // Generate charts from API data if requested
+            // Generate charts if requested
             if (generateCharts) {
-                logger.info("Generating visualizations from API data...");
-                ApiVisualReporter reporter = new ApiVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
+                // Check if we used storage-based reporting (indicated by fake project IDs)
+                boolean usedStorageReporting = results.values().stream()
+                        .anyMatch(result -> "from-storage".equals(result.getProjectId()));
                 
-                // Generate combined charts for each project and metric
-                for (ProjectMetricsResult projectResult : results.values()) {
-                    logger.info("Generating charts for project: {}", projectResult.getProjectName());
-                    for (String metric : projectResult.getMetrics()) {
-                        reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
+                if (usedStorageReporting) {
+                    logger.info("Generating visualizations from stored data...");
+                    StorageVisualReporter storageReporter = new StorageVisualReporter(
+                            metricsStorage, chartOutputDir, chartWidth, chartHeight, darkMode);
+                    
+                    // Generate charts for each project and metric from storage
+                    for (ProjectMetricsResult projectResult : results.values()) {
+                        logger.info("Generating charts from storage for project: {}", projectResult.getProjectName());
+                        for (String metric : projectResult.getMetrics()) {
+                            if (projectResult.hasMetricData(metric)) {
+                                storageReporter.generateCombinedMetricChart(projectResult, metric, period, null);
+                            }
+                        }
+                    }
+                } else {
+                    logger.info("Generating visualizations from API data...");
+                    ApiVisualReporter reporter = new ApiVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
+                    
+                    // Generate combined charts for each project and metric
+                    for (ProjectMetricsResult projectResult : results.values()) {
+                        logger.info("Generating charts for project: {}", projectResult.getProjectName());
+                        for (String metric : projectResult.getMetrics()) {
+                            reporter.generateCombinedMetricChart(projectResult, metric, period, granularity);
+                        }
                     }
                 }
                 
                 // Generate HTML index
                 logger.info("Generating HTML index");
-                reporter.createHtmlIndex(results);
+                if (usedStorageReporting) {
+                    StorageVisualReporter storageReporter = new StorageVisualReporter(
+                            metricsStorage, chartOutputDir, chartWidth, chartHeight, darkMode);
+                    storageReporter.createHtmlIndex(results);
+                } else {
+                    ApiVisualReporter reporter = new ApiVisualReporter(apiClient, chartOutputDir, chartWidth, chartHeight, darkMode);
+                    reporter.createHtmlIndex(results);
+                }
                 
                 logger.info("Visualizations generated in directory: {} (chart dimensions: {}x{}, dark mode: {})", 
                         chartOutputDir, chartWidth, chartHeight, darkMode ? "enabled" : "disabled");
