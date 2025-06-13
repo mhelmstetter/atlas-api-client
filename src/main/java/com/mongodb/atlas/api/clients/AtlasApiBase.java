@@ -410,6 +410,42 @@ public class AtlasApiBase {
     }
     
     /**
+     * Core HTTP method with support for different HTTP methods (GET, POST, PUT, etc.)
+     */
+    protected String makeApiRequest(String url, HttpMethod method, String requestBody, 
+                                  String acceptHeader, String projectId) {
+        logRequest(url, projectId);
+        checkRateLimit();
+        trackRequest(projectId, url);
+        
+        try {
+            long startTime = System.currentTimeMillis();
+            RestClient.RequestBodySpec request = restClient.method(method)
+                    .uri(url)
+                    .header("Accept", acceptHeader)
+                    .header("Content-Type", "application/json");
+            
+            String response;
+            if (requestBody != null && !requestBody.isEmpty()) {
+                response = request.body(requestBody).retrieve().body(String.class);
+            } else {
+                response = request.retrieve().body(String.class);
+            }
+            
+            long endTime = System.currentTimeMillis();
+            
+            if (debugLevel >= 2) {
+                requestLogger.info("Response time: {} ms for {} {}", (endTime - startTime), method, url);
+            }
+            
+            return response;
+        } catch (Exception e) {
+            requestLogger.error("Request failed: {} {} - {}", method, url, e.getMessage());
+            throw e;
+        }
+    }
+    
+    /**
      * Generic method to parse API responses
      */
     protected <T> T parseResponse(String responseBody, Class<T> responseType) {
