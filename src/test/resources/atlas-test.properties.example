@@ -20,7 +20,7 @@ apiPrivateKey=your_atlas_api_private_key_here
 # testOrgId=your_organization_id_here
 
 # Default test settings
-testRegion=US_EAST_1
+#testRegion=US_EAST_1
 testCloudProvider=AWS
 testMongoVersion=7.0
 
@@ -33,6 +33,12 @@ debugLevel=0
 
 # Enable rate limiting protection
 rateLimitEnabled=true
+
+# Cluster management settings
+clusterReuseEnabled=true
+sharedClustersEnabled=true
+clusterTimeoutMinutes=15
+cleanupIsolatedClusters=true
 
 # =============================================================================
 # EXAMPLE CONFIGURATIONS

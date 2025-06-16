@@ -1,8 +1,10 @@
 package com.mongodb.atlas.api.clients;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -273,6 +275,206 @@ public class AtlasClustersClient {
                         clusterName, projectId, e.getMessage());
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to delete cluster '" + clusterName + "'", e);
+        }
+    }
+    
+    // ========================================================================
+    // Cluster Discovery and Management Utilities
+    // ========================================================================
+    
+    /**
+     * Find clusters matching a name pattern (regex)
+     * 
+     * @param projectId The Atlas project ID
+     * @param namePattern Regular expression pattern to match cluster names
+     * @return List of clusters matching the pattern
+     */
+    public List<Map<String, Object>> findClustersByPattern(String projectId, String namePattern) {
+        logger.debug("Searching for clusters matching pattern: {} in project {}", namePattern, projectId);
+        
+        try {
+            List<Map<String, Object>> allClusters = getClusters(projectId);
+            
+            List<Map<String, Object>> matches = allClusters.stream()
+                .filter(cluster -> {
+                    String name = (String) cluster.get("name");
+                    return name != null && name.matches(namePattern);
+                })
+                .collect(Collectors.toList());
+            
+            logger.debug("Found {} clusters matching pattern '{}'", matches.size(), namePattern);
+            return matches;
+            
+        } catch (Exception e) {
+            logger.warn("Failed to search for clusters with pattern '{}' in project {}: {}", 
+                       namePattern, projectId, e.getMessage());
+            return List.of(); // Return empty list on error
+        }
+    }
+    
+    /**
+     * Find clusters with names starting with a prefix
+     * 
+     * @param projectId The Atlas project ID
+     * @param namePrefix Prefix to match cluster names
+     * @return List of clusters with names starting with the prefix
+     */
+    public List<Map<String, Object>> findClustersByPrefix(String projectId, String namePrefix) {
+        return findClustersByPattern(projectId, "^" + namePrefix + ".*");
+    }
+    
+    /**
+     * Find a cluster by exact name
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName Exact cluster name to find
+     * @return Optional containing the cluster if found, empty otherwise
+     */
+    public Optional<Map<String, Object>> findClusterByName(String projectId, String clusterName) {
+        logger.debug("Looking for cluster with exact name: {} in project {}", clusterName, projectId);
+        
+        try {
+            // Use the existing getCluster method which is more efficient for exact matches
+            Map<String, Object> cluster = getCluster(projectId, clusterName);
+            return Optional.of(cluster);
+        } catch (Exception e) {
+            logger.debug("Cluster '{}' not found in project {}: {}", 
+                        clusterName, projectId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+    
+    /**
+     * Check if a cluster exists and is in a specific state
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The cluster name to check
+     * @param expectedState The expected state (e.g., "IDLE", "CREATING")
+     * @return true if cluster exists and is in the expected state
+     */
+    public boolean isClusterInState(String projectId, String clusterName, String expectedState) {
+        Optional<Map<String, Object>> cluster = findClusterByName(projectId, clusterName);
+        
+        if (cluster.isPresent()) {
+            String currentState = (String) cluster.get().get("stateName");
+            boolean matches = expectedState.equals(currentState);
+            logger.debug("Cluster '{}' state check: current='{}', expected='{}', matches={}",
+                        clusterName, currentState, expectedState, matches);
+            return matches;
+        }
+        
+        logger.debug("Cluster '{}' not found for state check", clusterName);
+        return false;
+    }
+    
+    /**
+     * Check if a cluster exists and is ready for use (IDLE state)
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The cluster name to check
+     * @return true if cluster exists and is in IDLE state
+     */
+    public boolean isClusterReady(String projectId, String clusterName) {
+        return isClusterInState(projectId, clusterName, "IDLE");
+    }
+    
+    /**
+     * Find or create a cluster with the specified configuration
+     * This method will look for an existing cluster first, and only create a new one if not found
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The desired cluster name
+     * @param instanceSize The instance size (e.g., "M10", "M20")
+     * @param mongoVersion The MongoDB version (e.g., "7.0")
+     * @param region The cloud region
+     * @param cloudProvider The cloud provider
+     * @return Map containing cluster information (existing or newly created)
+     */
+    public Map<String, Object> findOrCreateCluster(String projectId, String clusterName,
+                                                   String instanceSize, String mongoVersion,
+                                                   String region, String cloudProvider) {
+        logger.info("Finding or creating cluster '{}' in project {}", clusterName, projectId);
+        
+        // First, try to find existing cluster
+        Optional<Map<String, Object>> existingCluster = findClusterByName(projectId, clusterName);
+        
+        if (existingCluster.isPresent()) {
+            Map<String, Object> cluster = existingCluster.get();
+            String state = (String) cluster.get("stateName");
+            
+            logger.info("Found existing cluster '{}' in state '{}'", clusterName, state);
+            
+            // Return existing cluster regardless of state - caller can decide if they want to wait
+            return cluster;
+        }
+        
+        // Create new cluster if not found
+        logger.info("Cluster '{}' not found, creating new cluster", clusterName);
+        return createCluster(projectId, clusterName, instanceSize, mongoVersion, region, cloudProvider);
+    }
+    
+    /**
+     * Delete clusters matching a name pattern
+     * Use with caution - this will delete multiple clusters!
+     * 
+     * @param projectId The Atlas project ID
+     * @param namePattern Regular expression pattern to match cluster names for deletion
+     * @return List of cluster names that were deleted (or attempted to be deleted)
+     */
+    public List<String> deleteClustersByPattern(String projectId, String namePattern) {
+        logger.warn("Deleting clusters matching pattern: {} in project {}", namePattern, projectId);
+        
+        List<Map<String, Object>> clustersToDelete = findClustersByPattern(projectId, namePattern);
+        List<String> deletedClusters = new ArrayList<>();
+        
+        for (Map<String, Object> cluster : clustersToDelete) {
+            String clusterName = (String) cluster.get("name");
+            try {
+                deleteCluster(projectId, clusterName);
+                deletedClusters.add(clusterName);
+                logger.info("Initiated deletion of cluster: {}", clusterName);
+            } catch (Exception e) {
+                logger.error("Failed to delete cluster '{}': {}", clusterName, e.getMessage());
+                // Continue with other clusters even if one fails
+            }
+        }
+        
+        logger.info("Initiated deletion of {} clusters matching pattern '{}'", 
+                   deletedClusters.size(), namePattern);
+        return deletedClusters;
+    }
+    
+    /**
+     * Get cluster information in a simplified format for testing
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The cluster name
+     * @return Map with essential cluster info (name, state, type, version, etc.)
+     */
+    public Map<String, Object> getClusterSummary(String projectId, String clusterName) {
+        try {
+            Map<String, Object> cluster = getCluster(projectId, clusterName);
+            
+            Map<String, Object> summary = new HashMap<>();
+            summary.put("name", cluster.get("name"));
+            summary.put("state", cluster.get("stateName"));
+            summary.put("clusterType", cluster.get("clusterType"));
+            summary.put("mongoVersion", cluster.get("mongoDBVersion"));
+            summary.put("id", cluster.get("id"));
+            
+            // Extract connection info if available
+            Map<String, Object> connectionStrings = (Map<String, Object>) cluster.get("connectionStrings");
+            if (connectionStrings != null) {
+                summary.put("connectionString", connectionStrings.get("standardSrv"));
+            }
+            
+            logger.debug("Generated cluster summary for '{}'", clusterName);
+            return summary;
+            
+        } catch (Exception e) {
+            logger.error("Failed to get cluster summary for '{}': {}", clusterName, e.getMessage());
+            throw new AtlasApiBase.AtlasApiException(
+                    "Failed to get cluster summary for '" + clusterName + "'", e);
         }
     }
 }

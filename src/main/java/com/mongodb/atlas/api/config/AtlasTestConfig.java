@@ -30,6 +30,12 @@ public class AtlasTestConfig {
     public static final String DEBUG_LEVEL = "debugLevel";
     public static final String RATE_LIMIT_ENABLED = "rateLimitEnabled";
     
+    // Cluster management configuration
+    public static final String CLUSTER_REUSE_ENABLED = "clusterReuseEnabled";
+    public static final String SHARED_CLUSTERS_ENABLED = "sharedClustersEnabled";
+    public static final String CLUSTER_TIMEOUT_MINUTES = "clusterTimeoutMinutes";
+    public static final String CLEANUP_ISOLATED_CLUSTERS = "cleanupIsolatedClusters";
+    
     // Environment variable keys (for backward compatibility)
     public static final String ENV_API_PUBLIC_KEY = "ATLAS_API_PUBLIC_KEY";
     public static final String ENV_API_PRIVATE_KEY = "ATLAS_API_PRIVATE_KEY";
@@ -188,6 +194,24 @@ public class AtlasTestConfig {
     
     public boolean isRateLimitEnabled() {
         return Boolean.parseBoolean(properties.getProperty(RATE_LIMIT_ENABLED, "true"));
+    }
+    
+    // Cluster management getters
+    
+    public boolean isClusterReuseEnabled() {
+        return Boolean.parseBoolean(properties.getProperty(CLUSTER_REUSE_ENABLED, "true"));
+    }
+    
+    public boolean areSharedClustersEnabled() {
+        return Boolean.parseBoolean(properties.getProperty(SHARED_CLUSTERS_ENABLED, "true"));
+    }
+    
+    public int getClusterTimeoutMinutes() {
+        return Integer.parseInt(properties.getProperty(CLUSTER_TIMEOUT_MINUTES, "15"));
+    }
+    
+    public boolean shouldCleanupIsolatedClusters() {
+        return Boolean.parseBoolean(properties.getProperty(CLEANUP_ISOLATED_CLUSTERS, "true"));
     }
     
     // Validation methods
