@@ -16,8 +16,8 @@ This guide will help you configure the Atlas API client for testing and developm
 **Option A: Properties File (Recommended)**
 
 ```bash
-# Copy the template
-cp src/test/resources/atlas-test.properties.template src/test/resources/atlas-test.properties
+# Copy the example file
+cp src/test/resources/atlas-test.properties.example src/test/resources/atlas-test.properties
 
 # Edit the properties file
 nano src/test/resources/atlas-test.properties
@@ -204,10 +204,10 @@ Create multiple configuration files for different environments:
 
 ```bash
 # Development
-cp atlas-test.properties.template atlas-dev.properties
+cp atlas-test.properties.example atlas-dev.properties
 
 # Staging
-cp atlas-test.properties.template atlas-staging.properties
+cp atlas-test.properties.example atlas-staging.properties
 
 # Use specific profile
 mvn test -Datlas.config.file=atlas-dev.properties

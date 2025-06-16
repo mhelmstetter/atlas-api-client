@@ -127,7 +127,7 @@ public class ConfigurationValidator {
             System.out.println();
             System.out.println("📋 STEP 2: Configure Credentials");
             System.out.println("   Option A - Properties File (Recommended):");
-            System.out.println("   1. Copy src/test/resources/atlas-test.properties.template");
+            System.out.println("   1. Copy src/test/resources/atlas-test.properties.example");
             System.out.println("      to src/test/resources/atlas-test.properties");
             System.out.println("   2. Edit atlas-test.properties and set:");
             System.out.println("      atlas.api.public.key=your_public_key");
