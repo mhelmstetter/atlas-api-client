@@ -25,8 +25,8 @@ nano src/test/resources/atlas-test.properties
 
 Set your credentials:
 ```properties
-atlas.api.public.key=your_atlas_api_public_key_here
-atlas.api.private.key=your_atlas_api_private_key_here
+apiPublicKey=your_atlas_api_public_key_here
+apiPrivateKey=your_atlas_api_private_key_here
 ```
 
 **Option B: Environment Variables**
@@ -62,48 +62,48 @@ mvn test
 
 | Property | Environment Variable | Description |
 |----------|---------------------|-------------|
-| `atlas.api.public.key` | `ATLAS_API_PUBLIC_KEY` | Your Atlas API public key |
-| `atlas.api.private.key` | `ATLAS_API_PRIVATE_KEY` | Your Atlas API private key |
+| `apiPublicKey` | `ATLAS_API_PUBLIC_KEY` | Your Atlas API public key |
+| `apiPrivateKey` | `ATLAS_API_PRIVATE_KEY` | Your Atlas API private key |
 
 ### Optional Settings
 
 | Property | Environment Variable | Default | Description |
 |----------|---------------------|---------|-------------|
-| `atlas.test.project.id` | `ATLAS_TEST_PROJECT_ID` | _(first available)_ | Specific project for testing |
-| `atlas.test.org.id` | `ATLAS_TEST_ORG_ID` | _(none)_ | Organization for project creation tests |
-| `atlas.test.region` | - | `US_EAST_1` | Default region for test clusters |
-| `atlas.test.cloud.provider` | - | `AWS` | Default cloud provider |
-| `atlas.test.mongo.version` | - | `7.0` | Default MongoDB version |
-| `atlas.debug.level` | - | `0` | Debug logging level (0-2) |
-| `atlas.rate.limit.enabled` | - | `true` | Enable rate limiting protection |
+| `testProjectId` | `ATLAS_TEST_PROJECT_ID` | _(first available)_ | Specific project for testing |
+| `testOrgId` | `ATLAS_TEST_ORG_ID` | _(none)_ | Organization for project creation tests |
+| `testRegion` | - | `US_EAST_1` | Default region for test clusters |
+| `testCloudProvider` | - | `AWS` | Default cloud provider |
+| `testMongoVersion` | - | `7.0` | Default MongoDB version |
+| `debugLevel` | - | `0` | Debug logging level (0-2) |
+| `rateLimitEnabled` | - | `true` | Enable rate limiting protection |
 
 ## Example Configurations
 
 ### Development Setup
 ```properties
 # Basic development configuration
-atlas.api.public.key=abcdef123456
-atlas.api.private.key=12345678-1234-1234-1234-123456789abc
-atlas.test.project.id=507f1f77bcf86cd799439011
-atlas.debug.level=1
+apiPublicKey=abcdef123456
+apiPrivateKey=12345678-1234-1234-1234-123456789abc
+testProjectId=507f1f77bcf86cd799439011
+debugLevel=1
 ```
 
 ### CI/CD Setup
 ```properties
 # Production-like CI/CD configuration
-atlas.api.public.key=${ATLAS_API_PUBLIC_KEY}
-atlas.api.private.key=${ATLAS_API_PRIVATE_KEY}
-atlas.test.project.id=${ATLAS_TEST_PROJECT_ID}
-atlas.rate.limit.enabled=true
-atlas.debug.level=0
+apiPublicKey=${ATLAS_API_PUBLIC_KEY}
+apiPrivateKey=${ATLAS_API_PRIVATE_KEY}
+testProjectId=${ATLAS_TEST_PROJECT_ID}
+rateLimitEnabled=true
+debugLevel=0
 ```
 
 ### Multi-Cloud Testing
 ```properties
 # Test different cloud providers
-atlas.test.cloud.provider=GCP
-atlas.test.region=US_CENTRAL1_A
-atlas.test.mongo.version=6.0
+testCloudProvider=GCP
+testRegion=US_CENTRAL1_A
+testMongoVersion=6.0
 ```
 
 ## Configuration Precedence
@@ -116,7 +116,7 @@ The configuration system loads settings in this order (later values override ear
 
 ### Example Using System Properties
 ```bash
-mvn test -Datlas.test.region=EU_WEST_1 -Datlas.debug.level=2
+mvn test -DtestRegion=EU_WEST_1 -DdebugLevel=2
 ```
 
 ## Security Best Practices

@@ -19,16 +19,16 @@ public class AtlasTestConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(AtlasTestConfig.class);
     
-    // Configuration keys
-    public static final String API_PUBLIC_KEY = "atlas.api.public.key";
-    public static final String API_PRIVATE_KEY = "atlas.api.private.key";
-    public static final String TEST_PROJECT_ID = "atlas.test.project.id";
-    public static final String TEST_ORG_ID = "atlas.test.org.id";
-    public static final String TEST_REGION = "atlas.test.region";
-    public static final String TEST_CLOUD_PROVIDER = "atlas.test.cloud.provider";
-    public static final String TEST_MONGO_VERSION = "atlas.test.mongo.version";
-    public static final String DEBUG_LEVEL = "atlas.debug.level";
-    public static final String RATE_LIMIT_ENABLED = "atlas.rate.limit.enabled";
+    // Configuration keys (following existing camelCase convention)
+    public static final String API_PUBLIC_KEY = "apiPublicKey";
+    public static final String API_PRIVATE_KEY = "apiPrivateKey";
+    public static final String TEST_PROJECT_ID = "testProjectId";
+    public static final String TEST_ORG_ID = "testOrgId";
+    public static final String TEST_REGION = "testRegion";
+    public static final String TEST_CLOUD_PROVIDER = "testCloudProvider";
+    public static final String TEST_MONGO_VERSION = "testMongoVersion";
+    public static final String DEBUG_LEVEL = "debugLevel";
+    public static final String RATE_LIMIT_ENABLED = "rateLimitEnabled";
     
     // Environment variable keys (for backward compatibility)
     public static final String ENV_API_PUBLIC_KEY = "ATLAS_API_PUBLIC_KEY";

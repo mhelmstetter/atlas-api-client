@@ -23,7 +23,7 @@ public class ConfigurationValidator {
         // Check required credentials
         if (!config.hasRequiredCredentials()) {
             result.addError("Atlas API credentials are missing or empty");
-            result.addSuggestion("Set atlas.api.public.key and atlas.api.private.key in properties file");
+            result.addSuggestion("Set apiPublicKey and apiPrivateKey in properties file");
             result.addSuggestion("Or set ATLAS_API_PUBLIC_KEY and ATLAS_API_PRIVATE_KEY environment variables");
         } else {
             result.addSuccess("Atlas API credentials are configured");
@@ -32,14 +32,14 @@ public class ConfigurationValidator {
         // Check optional test configuration
         if (config.getTestProjectId() == null) {
             result.addWarning("No test project ID specified - will use first available project");
-            result.addSuggestion("Set atlas.test.project.id for consistent testing");
+            result.addSuggestion("Set testProjectId for consistent testing");
         } else {
             result.addSuccess("Test project ID is configured: " + config.getTestProjectId());
         }
         
         if (config.getTestOrgId() == null) {
             result.addWarning("No test organization ID specified - project creation tests will be skipped");
-            result.addSuggestion("Set atlas.test.org.id to enable project creation tests");
+            result.addSuggestion("Set testOrgId to enable project creation tests");
         } else {
             result.addSuccess("Test organization ID is configured");
         }
@@ -130,8 +130,8 @@ public class ConfigurationValidator {
             System.out.println("   1. Copy src/test/resources/atlas-test.properties.example");
             System.out.println("      to src/test/resources/atlas-test.properties");
             System.out.println("   2. Edit atlas-test.properties and set:");
-            System.out.println("      atlas.api.public.key=your_public_key");
-            System.out.println("      atlas.api.private.key=your_private_key");
+            System.out.println("      apiPublicKey=your_public_key");
+            System.out.println("      apiPrivateKey=your_private_key");
             System.out.println();
             System.out.println("   Option B - Environment Variables:");
             System.out.println("   export ATLAS_API_PUBLIC_KEY=\"your_public_key\"");
@@ -143,10 +143,10 @@ public class ConfigurationValidator {
         System.out.println();
         System.out.println("📋 STEP 3: Optional Test Configuration");
         System.out.println("   Set these in atlas-test.properties for better test control:");
-        System.out.println("   atlas.test.project.id=your_test_project_id");
-        System.out.println("   atlas.test.org.id=your_organization_id");
-        System.out.println("   atlas.test.region=US_EAST_1");
-        System.out.println("   atlas.test.cloud.provider=AWS");
+        System.out.println("   testProjectId=your_test_project_id");
+        System.out.println("   testOrgId=your_organization_id");
+        System.out.println("   testRegion=US_EAST_1");
+        System.out.println("   testCloudProvider=AWS");
         
         System.out.println();
         System.out.println("📋 STEP 4: Run Tests");
