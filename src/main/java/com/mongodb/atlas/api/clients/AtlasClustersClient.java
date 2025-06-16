@@ -45,7 +45,7 @@ public class AtlasClustersClient {
             List<Map<String, Object>> projects = apiBase.extractResults(responseBody);
             
             return projects.stream()
-                    .filter(p -> includeProjectNames.contains(p.get("name")))
+                    .filter(p -> includeProjectNames.isEmpty() || includeProjectNames.contains(p.get("name")))
                     .collect(Collectors.toMap(
                             p -> (String) p.get("name"), 
                             p -> (String) p.get("id")));
@@ -226,28 +226,53 @@ public class AtlasClustersClient {
         spec.put("mongoDBMajorVersion", mongoVersion);
         spec.put("clusterType", "REPLICASET");
         
-        // Provider settings
-        Map<String, Object> providerSettings = new HashMap<>();
-        providerSettings.put("providerName", cloudProvider.toUpperCase());
-        providerSettings.put("instanceSizeName", instanceSize);
-        providerSettings.put("regionName", region.toUpperCase());
-        
-        spec.put("providerSettings", providerSettings);
-        
-        // Replication specs for replica set
+        // Build replication specs following Atlas SDK format
         Map<String, Object> replicationSpec = new HashMap<>();
-        replicationSpec.put("numShards", 1);
         
-        Map<String, Object> regionsConfig = new HashMap<>();
-        Map<String, Object> regionSettings = new HashMap<>();
-        regionSettings.put("electableNodes", 3);
-        regionSettings.put("priority", 7);
-        regionSettings.put("readOnlyNodes", 0);
-        regionsConfig.put(region.toUpperCase(), regionSettings);
+        // Region configs array
+        Map<String, Object> regionConfig = new HashMap<>();
+        regionConfig.put("providerName", cloudProvider.toUpperCase());
+        regionConfig.put("priority", 7);
+        regionConfig.put("regionName", region.toUpperCase());
         
-        replicationSpec.put("regionsConfig", regionsConfig);
+        // Electable specs for dedicated clusters
+        Map<String, Object> electableSpecs = new HashMap<>();
+        electableSpecs.put("instanceSize", instanceSize);
+        electableSpecs.put("nodeCount", 3);
+        regionConfig.put("electableSpecs", electableSpecs);
+        
+        replicationSpec.put("regionConfigs", List.of(regionConfig));
         spec.put("replicationSpecs", List.of(replicationSpec));
         
         return spec;
+    }
+    
+    /**
+     * Delete an Atlas cluster
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The name of the cluster to delete
+     * @return Map containing deletion response
+     */
+    public Map<String, Object> deleteCluster(String projectId, String clusterName) {
+        logger.info("Deleting Atlas cluster '{}' in project {}", clusterName, projectId);
+        
+        try {
+            String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + clusterName;
+            
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.DELETE, null, 
+                                                       AtlasApiBase.API_VERSION_V2, projectId);
+            
+            Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+            logger.info("Cluster '{}' deletion initiated successfully", clusterName);
+            
+            return response;
+            
+        } catch (Exception e) {
+            logger.error("Failed to delete cluster '{}' in project {}: {}", 
+                        clusterName, projectId, e.getMessage());
+            throw new AtlasApiBase.AtlasApiException(
+                    "Failed to delete cluster '" + clusterName + "'", e);
+        }
     }
 }

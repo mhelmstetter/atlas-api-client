@@ -1,0 +1,54 @@
+# MongoDB Atlas API Configuration
+# Copy this file to atlas-test.properties and fill in your values
+
+# =============================================================================
+# REQUIRED: Atlas API Credentials
+# =============================================================================
+# Get these from MongoDB Atlas > Organization Settings > Access Manager > API Keys
+atlas.api.public.key=your_atlas_api_public_key_here
+atlas.api.private.key=your_atlas_api_private_key_here
+
+# =============================================================================
+# OPTIONAL: Test Configuration
+# =============================================================================
+
+# Project ID for testing (if not specified, will use first available project)
+# atlas.test.project.id=your_test_project_id_here
+
+# Organization ID (required only for project creation tests)
+# atlas.test.org.id=your_organization_id_here
+
+# Default test settings
+atlas.test.region=US_EAST_1
+atlas.test.cloud.provider=AWS
+atlas.test.mongo.version=7.0
+
+# =============================================================================
+# OPTIONAL: Advanced Configuration
+# =============================================================================
+
+# Debug level (0=off, 1=basic, 2=verbose)
+atlas.debug.level=0
+
+# Enable rate limiting protection
+atlas.rate.limit.enabled=true
+
+# =============================================================================
+# EXAMPLE CONFIGURATIONS
+# =============================================================================
+
+# For development/testing:
+# atlas.test.region=US_EAST_1
+# atlas.test.cloud.provider=AWS
+# atlas.debug.level=1
+
+# For CI/CD environments:
+# atlas.rate.limit.enabled=true
+# atlas.debug.level=0
+
+# For different cloud providers:
+# atlas.test.cloud.provider=GCP
+# atlas.test.region=US_CENTRAL1_A
+
+# atlas.test.cloud.provider=AZURE
+# atlas.test.region=US_EAST_2

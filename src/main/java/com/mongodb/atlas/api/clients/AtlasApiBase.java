@@ -57,10 +57,10 @@ public class AtlasApiBase {
     private final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private int totalRequests = 0;
     private Instant rateWindowStart = Instant.now();
-    private int debugLevel = 2;
+    private int debugLevel = 0;
     
     public AtlasApiBase(String apiPublicKey, String apiPrivateKey) {
-        this(apiPublicKey, apiPrivateKey, 2);
+        this(apiPublicKey, apiPrivateKey, 0);
     }
     
     // Helper methods for detailed logging and data processing

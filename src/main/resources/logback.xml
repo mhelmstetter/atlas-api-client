@@ -21,13 +21,13 @@
         </rollingPolicy>
     </appender>
     
-    <!-- Specific logger for Atlas API requests -->
+    <!-- Specific logger for Atlas API requests - only log to file, not console for clean interactive experience -->
     <logger name="AtlasRequestLogger" level="DEBUG" additivity="false">
         <appender-ref ref="REQUEST_FILE" />
-        <appender-ref ref="CONSOLE" /> <!-- Also log to console if desired -->
     </logger>
     
-    <logger name="com.mongodb.atlas" level="DEBUG"/>
+    <!-- Atlas API loggers - only show warnings/errors on console -->
+    <logger name="com.mongodb.atlas" level="WARN"/>
     
     <!-- Root logger -->
     <root level="INFO">
