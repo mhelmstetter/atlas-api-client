@@ -306,6 +306,9 @@ public class AtlasFlexClustersClient {
         
         spec.put("providerSettings", providerSettings);
         
+        // Flex clusters require backingProviderName
+        spec.put("backingProviderName", cloudProvider.toUpperCase());
+        
         // Flex clusters have default settings for:
         // - diskSizeGB: Automatically managed
         // - backupEnabled: false (not available for Flex)

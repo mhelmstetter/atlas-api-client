@@ -57,7 +57,7 @@ public class TestClusterManager {
      * Shared clusters are reused across tests and not automatically cleaned up.
      */
     public String getOrCreateSharedCluster(String instanceSize, String mongoVersion) {
-        String clusterKey = "shared-" + instanceSize.toLowerCase() + "-" + mongoVersion.replace(".", "");
+        String clusterKey = instanceSize.toLowerCase() + "-" + mongoVersion.replace(".", "");
         String clusterName = SHARED_CLUSTER_PREFIX + clusterKey;
         
         logger.info("Looking for shared cluster: {}", clusterName);
