@@ -40,7 +40,7 @@ public class AtlasApiBase {
     // API base URLs and versions
     public static final String BASE_URL_V2 = "https://cloud.mongodb.com/api/atlas/v2";
     public static final String BASE_URL_V1 = "https://cloud.mongodb.com/api/atlas/v1.0";
-    public static final String API_VERSION_V2 = "application/vnd.atlas.2025-02-19+json";
+    public static final String API_VERSION_V2 = "application/vnd.atlas.2024-11-13+json";
     public static final String API_VERSION_V1 = "application/json";
     
     // Rate limiting constants

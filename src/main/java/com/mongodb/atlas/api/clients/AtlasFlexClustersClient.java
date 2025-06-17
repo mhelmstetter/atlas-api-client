@@ -40,7 +40,7 @@ public class AtlasFlexClustersClient {
      * @return List of Flex clusters
      */
     public List<Map<String, Object>> getFlexClusters(String projectId) {
-        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/flexClusters";
+        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters";
         logger.info("Fetching Flex clusters for project {}", projectId);
         String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
         return apiBase.extractResults(responseBody);
@@ -296,24 +296,19 @@ public class AtlasFlexClustersClient {
                                                     String region, String cloudProvider) {
         Map<String, Object> spec = new HashMap<>();
         spec.put("name", clusterName);
-        spec.put("mongoDBMajorVersion", mongoVersion);
-        spec.put("clusterType", "FLEX");
         
-        // Flex cluster provider settings - Flex clusters use TENANT provider model
+        // Flex cluster provider settings - according to Atlas API docs
         Map<String, Object> providerSettings = new HashMap<>();
-        providerSettings.put("providerName", "TENANT");  // Flex clusters use TENANT provider
+        providerSettings.put("backingProviderName", cloudProvider.toUpperCase());
         providerSettings.put("regionName", region.toUpperCase());
         
         spec.put("providerSettings", providerSettings);
+        spec.put("terminationProtectionEnabled", false);
         
-        // Flex clusters require backingProviderName to specify the actual cloud provider
-        spec.put("backingProviderName", cloudProvider.toUpperCase());
-        
-        // Flex clusters have default settings for:
-        // - diskSizeGB: Automatically managed
-        // - backupEnabled: false (not available for Flex)
-        // - autoScaling: Not applicable
-        // - terminationProtectionEnabled: false (default)
+        // MongoDB version is optional for Flex clusters - they use latest available
+        // if (mongoVersion != null) {
+        //     spec.put("mongoDBMajorVersion", mongoVersion);
+        // }
         
         return spec;
     }
