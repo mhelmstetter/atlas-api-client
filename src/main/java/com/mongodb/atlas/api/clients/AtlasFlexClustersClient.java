@@ -299,14 +299,15 @@ public class AtlasFlexClustersClient {
         spec.put("mongoDBMajorVersion", mongoVersion);
         spec.put("clusterType", "FLEX");
         
-        // Flex cluster provider settings
+        // Flex cluster provider settings - Flex clusters use TENANT provider model
         Map<String, Object> providerSettings = new HashMap<>();
-        providerSettings.put("providerName", cloudProvider.toUpperCase());
+        providerSettings.put("providerName", "TENANT");  // Flex clusters use TENANT provider
         providerSettings.put("regionName", region.toUpperCase());
         
         spec.put("providerSettings", providerSettings);
         
-        // Note: backingProviderName was required for legacy M2/M5 clusters but not for Flex clusters
+        // Flex clusters require backingProviderName to specify the actual cloud provider
+        spec.put("backingProviderName", cloudProvider.toUpperCase());
         
         // Flex clusters have default settings for:
         // - diskSizeGB: Automatically managed
