@@ -42,6 +42,7 @@ public class AtlasTestConfig {
     public static final String ENV_TEST_PROJECT_ID = "ATLAS_TEST_PROJECT_ID";
     public static final String ENV_TEST_ORG_ID = "ATLAS_TEST_ORG_ID";
     
+    
     // Default properties file name
     public static final String DEFAULT_PROPERTIES_FILE = "atlas-test.properties";
     
