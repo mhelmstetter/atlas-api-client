@@ -65,7 +65,15 @@
 						<atlas.api.public.key>${env.ATLAS_API_PUBLIC_KEY}</atlas.api.public.key>
 						<atlas.api.private.key>${env.ATLAS_API_PRIVATE_KEY}</atlas.api.private.key>
 					</systemPropertyVariables>
+					<useModulePath>false</useModulePath>
 				</configuration>
+				<dependencies>
+					<dependency>
+						<groupId>org.junit.jupiter</groupId>
+						<artifactId>junit-jupiter-engine</artifactId>
+						<version>5.10.0</version>
+					</dependency>
+				</dependencies>
 			</plugin>
 		</plugins>
 		</build>
