@@ -61,16 +61,16 @@ public abstract class AtlasIntegrationTestBase {
             logger.info("=== Atlas Integration Test Teardown ===");
             logger.info(testClusterManager.getClusterSummary());
             
-            // Clean up isolated clusters if configured to do so (shared clusters are preserved)
-            if (config.shouldCleanupIsolatedClusters()) {
+            // Clean up ephemeral clusters if configured to do so (shared clusters are preserved)
+            if (config.shouldCleanupEphemeralClusters()) {
                 try {
-                    testClusterManager.cleanupIsolatedClusters();
-                    logger.info("Isolated cluster cleanup completed");
+                    testClusterManager.cleanupEphemeralClusters();
+                    logger.info("Ephemeral cluster cleanup completed");
                 } catch (Exception e) {
-                    logger.warn("Failed to cleanup isolated clusters: {}", e.getMessage());
+                    logger.warn("Failed to cleanup ephemeral clusters: {}", e.getMessage());
                 }
             } else {
-                logger.info("Isolated cluster cleanup skipped (cleanupIsolatedClusters=false)");
+                logger.info("Ephemeral cluster cleanup skipped (cleanupEphemeralClusters=false)");
             }
             
             logger.info("=======================================");
@@ -218,10 +218,10 @@ public abstract class AtlasIntegrationTestBase {
     }
     
     /**
-     * Create an isolated cluster for a specific test
+     * Create an ephemeral cluster for a specific test
      * This cluster will be automatically cleaned up after test completion
      */
-    protected String createIsolatedTestCluster(TestInfo testInfo, String instanceSize, String mongoVersion) {
+    protected String createEphemeralTestCluster(TestInfo testInfo, String instanceSize, String mongoVersion) {
         if (testClusterManager == null) {
             throw new IllegalStateException("Test cluster manager not available");
         }
@@ -229,21 +229,21 @@ public abstract class AtlasIntegrationTestBase {
         String testClass = getTestClassName(testInfo);
         String testMethod = getTestMethodName(testInfo);
         
-        return testClusterManager.createIsolatedCluster(testClass, testMethod, instanceSize, mongoVersion);
+        return testClusterManager.createEphemeralCluster(testClass, testMethod, instanceSize, mongoVersion);
     }
     
     /**
-     * Create an isolated Flex cluster for a specific test
+     * Create an ephemeral Flex cluster for a specific test  
      */
-    protected String createIsolatedFlexCluster(TestInfo testInfo) {
-        return createIsolatedTestCluster(testInfo, "M0", "7.0");
+    protected String createEphemeralFlexCluster(TestInfo testInfo) {
+        return createEphemeralTestCluster(testInfo, "M0", "7.0");
     }
     
     /**
-     * Create an isolated dedicated cluster for a specific test
+     * Create an ephemeral dedicated cluster for a specific test
      */
-    protected String createIsolatedDedicatedCluster(TestInfo testInfo) {
-        return createIsolatedTestCluster(testInfo, "M10", "7.0");
+    protected String createEphemeralDedicatedCluster(TestInfo testInfo) {
+        return createEphemeralTestCluster(testInfo, "M10", "7.0");
     }
     
     /**

@@ -23,7 +23,7 @@ public class TestClusterManager {
     
     // Naming conventions
     private static final String SHARED_CLUSTER_PREFIX = "shared-test-";
-    private static final String ISOLATED_CLUSTER_PREFIX = "isolated-test-";
+    private static final String EPHEMERAL_CLUSTER_PREFIX = "ephemeral-test-";
     private static final String FLEX_CLUSTER_PREFIX = "flex-test-";
     
     // Cluster states
@@ -120,16 +120,16 @@ public class TestClusterManager {
     }
     
     /**
-     * Create an isolated cluster for a specific test.
-     * Isolated clusters are automatically cleaned up after the test.
+     * Create an ephemeral cluster for a specific test.
+     * Ephemeral clusters are automatically cleaned up after the test.
      */
-    public String createIsolatedCluster(String testClass, String testMethod, 
-                                       String instanceSize, String mongoVersion) {
+    public String createEphemeralCluster(String testClass, String testMethod, 
+                                        String instanceSize, String mongoVersion) {
         String timestamp = String.valueOf(System.currentTimeMillis());
-        String clusterName = ISOLATED_CLUSTER_PREFIX + testClass.toLowerCase() + "-" + 
+        String clusterName = EPHEMERAL_CLUSTER_PREFIX + testClass.toLowerCase() + "-" + 
                            testMethod.toLowerCase() + "-" + timestamp;
         
-        logger.info("Creating isolated cluster: {} (size: {}, version: {})", 
+        logger.info("Creating ephemeral cluster: {} (size: {}, version: {})", 
                    clusterName, instanceSize, mongoVersion);
         
         try {
@@ -148,12 +148,12 @@ public class TestClusterManager {
             String clusterId = (String) cluster.get("id");
             managedClusters.put(clusterName, new ClusterInfo(clusterId, clusterName, true, false));
             
-            logger.info("Created isolated cluster: {} (ID: {})", clusterName, clusterId);
+            logger.info("Created ephemeral cluster: {} (ID: {})", clusterName, clusterId);
             return clusterName;
             
         } catch (Exception e) {
-            logger.error("Failed to create isolated cluster: {}", clusterName, e);
-            throw new RuntimeException("Failed to create isolated cluster: " + clusterName, e);
+            logger.error("Failed to create ephemeral cluster: {}", clusterName, e);
+            throw new RuntimeException("Failed to create ephemeral cluster: " + clusterName, e);
         }
     }
     
@@ -232,10 +232,10 @@ public class TestClusterManager {
     }
     
     /**
-     * Clean up isolated clusters created by this manager
+     * Clean up ephemeral clusters created by this manager
      */
-    public void cleanupIsolatedClusters() {
-        logger.info("Cleaning up isolated clusters created by this manager");
+    public void cleanupEphemeralClusters() {
+        logger.info("Cleaning up ephemeral clusters created by this manager");
         
         List<String> toCleanup = managedClusters.entrySet().stream()
             .filter(entry -> entry.getValue().createdByManager && !entry.getValue().isShared)
@@ -247,7 +247,7 @@ public class TestClusterManager {
                 deleteCluster(clusterName);
                 managedClusters.remove(clusterName);
             } catch (Exception e) {
-                logger.warn("Failed to cleanup isolated cluster: {}", clusterName, e);
+                logger.warn("Failed to cleanup ephemeral cluster: {}", clusterName, e);
             }
         }
     }
@@ -303,16 +303,16 @@ public class TestClusterManager {
         summary.append("  Reused existing: ").append(reusedClusters.size()).append("\n");
         
         long shared = managedClusters.values().stream().filter(c -> c.isShared).count();
-        long isolated = managedClusters.values().stream().filter(c -> !c.isShared).count();
+        long ephemeral = managedClusters.values().stream().filter(c -> !c.isShared).count();
         
         summary.append("  Shared clusters: ").append(shared).append("\n");
-        summary.append("  Isolated clusters: ").append(isolated).append("\n");
+        summary.append("  Ephemeral clusters: ").append(ephemeral).append("\n");
         
         if (!managedClusters.isEmpty()) {
             summary.append("  Managed clusters:\n");
             managedClusters.forEach((name, info) -> {
                 summary.append("    - ").append(name)
-                       .append(" (").append(info.isShared ? "shared" : "isolated")
+                       .append(" (").append(info.isShared ? "shared" : "ephemeral")
                        .append(", ").append(info.createdByManager ? "created" : "reused")
                        .append(")\n");
             });

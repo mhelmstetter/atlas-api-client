@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# MongoDB Atlas Interactive Cluster Launcher
+# Standalone executable launcher for creating real Atlas clusters
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAR_FILE="$SCRIPT_DIR/bin/AtlasClient.jar"
+
+# Check if JAR exists
+if [[ ! -f "$JAR_FILE" ]]; then
+    echo "❌ Error: Atlas client JAR not found at $JAR_FILE"
+    echo "Please run 'mvn clean package -DskipTests' first to build the project."
+    exit 1
+fi
+
+echo "🍃 MongoDB Atlas Interactive Cluster Launcher"
+echo "=============================================="
+echo ""
+
+# Run the Atlas cluster launcher
+java -cp "$JAR_FILE" com.mongodb.atlas.api.launcher.AtlasClusterLauncher
+
+echo ""
+echo "✅ Atlas launcher session complete!"

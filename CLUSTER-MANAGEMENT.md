@@ -11,6 +11,16 @@ The new cluster management system addresses key challenges with Atlas testing:
 - **Resource Safety**: Automatic cleanup of isolated resources while preserving shared infrastructure
 - **Flexibility**: Support both shared clusters and isolated clusters based on test requirements
 
+## Important Terminology
+
+To avoid confusion with Atlas service tiers, this system uses the following terminology:
+
+- **Shared Test Clusters**: Test clusters reused across multiple tests (distinct from Atlas M0/M2/M5 shared service tier)
+- **Ephemeral Test Clusters**: Test clusters created for specific tests and automatically cleaned up
+- **Atlas Service Tiers**: M0/M2/M5 (shared), M10+ (dedicated), Serverless (usage-based)
+
+Our test clusters can use any Atlas service tier (M0, M10, etc.) - the "shared/ephemeral" distinction is about test lifecycle, not Atlas infrastructure.
+
 ## Key Components
 
 ### 1. TestClusterManager
@@ -18,11 +28,11 @@ The new cluster management system addresses key challenges with Atlas testing:
 The `TestClusterManager` class orchestrates cluster lifecycle management:
 
 ```java
-// Get or create a shared cluster (reused across tests)
+// Get or create a shared test cluster (reused across tests)
 String sharedCluster = testClusterManager.getOrCreateSharedCluster("M0", "7.0");
 
-// Create an isolated cluster (automatically cleaned up)
-String isolatedCluster = testClusterManager.createIsolatedCluster("TestClass", "testMethod", "M10", "7.0");
+// Create an ephemeral test cluster (automatically cleaned up)
+String ephemeralCluster = testClusterManager.createEphemeralCluster("TestClass", "testMethod", "M10", "7.0");
 
 // Discovery and management
 List<Map<String, Object>> testClusters = testClusterManager.findClustersByPattern("test-.*");
@@ -59,9 +69,9 @@ public class MyIntegrationTest extends AtlasIntegrationTestBase {
     }
     
     @Test
-    void testWithIsolatedCluster(TestInfo testInfo) {
-        // Create isolated cluster for destructive tests
-        String clusterName = createIsolatedFlexCluster(testInfo);
+    void testWithEphemeralCluster(TestInfo testInfo) {
+        // Create ephemeral cluster for destructive tests
+        String clusterName = createEphemeralFlexCluster(testInfo);
         // Test cluster creation, deletion, modification
     }
 }
@@ -77,12 +87,12 @@ public class MyIntegrationTest extends AtlasIntegrationTestBase {
   - `shared-test-m10-70` (Dedicated M10, MongoDB 7.0)
 - **Lifecycle**: Created once, reused across all tests, not automatically deleted
 
-### Isolated Clusters (Test-Specific)
+### Ephemeral Test Clusters (Test-Specific)
 
-- **Pattern**: `isolated-test-{class}-{method}-{timestamp}`
+- **Pattern**: `ephemeral-test-{class}-{method}-{timestamp}`
 - **Examples**: 
-  - `isolated-test-atlasclusterstest-testcreation-1734364800000`
-  - `isolated-test-flexclusterstest-testupgrade-1734364801000`
+  - `ephemeral-test-atlasclusterstest-testcreation-1734364800000`
+  - `ephemeral-test-flexclusterstest-testupgrade-1734364801000`
 - **Lifecycle**: Created per test, automatically cleaned up after test suite
 
 ## Configuration Options
@@ -99,8 +109,8 @@ sharedClustersEnabled=true
 # Cluster ready timeout in minutes (default: 15)
 clusterTimeoutMinutes=15
 
-# Cleanup isolated clusters after tests (default: true)
-cleanupIsolatedClusters=true
+# Cleanup ephemeral clusters after tests (default: true)
+cleanupEphemeralClusters=true
 ```
 
 ### Environment-Specific Configurations
@@ -110,7 +120,7 @@ cleanupIsolatedClusters=true
 # Maximize reuse for local development
 clusterReuseEnabled=true
 sharedClustersEnabled=true
-cleanupIsolatedClusters=false  # Keep for debugging
+cleanupEphemeralClusters=false  # Keep for debugging
 clusterTimeoutMinutes=20
 ```
 
@@ -119,7 +129,7 @@ clusterTimeoutMinutes=20
 # Conservative approach for CI
 clusterReuseEnabled=true
 sharedClustersEnabled=true
-cleanupIsolatedClusters=true
+cleanupEphemeralClusters=true
 clusterTimeoutMinutes=10
 ```
 
@@ -128,7 +138,7 @@ clusterTimeoutMinutes=10
 # Each test gets its own cluster
 clusterReuseEnabled=false
 sharedClustersEnabled=false
-cleanupIsolatedClusters=true
+cleanupEphemeralClusters=true
 clusterTimeoutMinutes=30
 ```
 
@@ -153,7 +163,7 @@ void testListClusters() {
 }
 ```
 
-### Pattern 2: Cluster Lifecycle Tests (Use Isolated Clusters)
+### Pattern 2: Cluster Lifecycle Tests (Use Ephemeral Clusters)
 
 For tests that create, modify, or delete clusters:
 
@@ -162,8 +172,8 @@ For tests that create, modify, or delete clusters:
 void testClusterCreationAndDeletion(TestInfo testInfo) {
     String projectId = getTestProjectId();
     
-    // Create isolated cluster for this test
-    String clusterName = createIsolatedFlexCluster(testInfo);
+    // Create ephemeral cluster for this test
+    String clusterName = createEphemeralFlexCluster(testInfo);
     
     // Wait for cluster to be ready
     assertTrue(waitForClusterReady(clusterName));
@@ -193,16 +203,16 @@ class AtlasClusterIntegrationTest extends AtlasIntegrationTestBase {
     @Test
     @Order(2)
     void testClusterCreation(TestInfo testInfo) {
-        // Create isolated cluster for creation testing
-        String clusterName = createIsolatedDedicatedCluster(testInfo);
+        // Create ephemeral cluster for creation testing
+        String clusterName = createEphemeralDedicatedCluster(testInfo);
         // ... test cluster creation and modification
     }
     
     @Test  
     @Order(3)
     void testClusterUpgrade(TestInfo testInfo) {
-        // Another isolated cluster for upgrade testing
-        String clusterName = createIsolatedFlexCluster(testInfo);
+        // Another ephemeral cluster for upgrade testing
+        String clusterName = createEphemeralFlexCluster(testInfo);
         // ... test cluster upgrades
     }
 }
@@ -231,23 +241,23 @@ The system automatically creates shared clusters based on the most cost-effectiv
    // Good: Reuse shared cluster
    String clusterName = getSharedFlexCluster();
    
-   // Avoid: Creating unnecessary isolated clusters
-   String clusterName = createIsolatedFlexCluster(testInfo); // Only when needed
+   // Avoid: Creating unnecessary ephemeral clusters
+   String clusterName = createEphemeralFlexCluster(testInfo); // Only when needed
    ```
 
 2. **Use Flex Clusters When Possible**:
    ```java
    // Good: Use Flex for development/testing
-   String clusterName = createIsolatedFlexCluster(testInfo);
+   String clusterName = createEphemeralFlexCluster(testInfo);
    
    // Only when needed: Dedicated clusters for specific requirements
-   String clusterName = createIsolatedDedicatedCluster(testInfo);
+   String clusterName = createEphemeralDedicatedCluster(testInfo);
    ```
 
 3. **Configure Cleanup Appropriately**:
    ```properties
    # Production: Clean up everything
-   cleanupIsolatedClusters=true
+   cleanupEphemeralClusters=true
    
    # Development: Keep for debugging (but monitor costs)
    cleanupIsolatedClusters=false
@@ -277,7 +287,7 @@ static void tearDown() {
         logger.info(testClusterManager.getClusterSummary());
         // Output shows:
         // - Total managed clusters
-        // - Shared vs isolated breakdown
+        // - Shared vs ephemeral breakdown
         // - Cleanup results
     }
 }
@@ -291,8 +301,8 @@ For emergency cleanup or maintenance:
 // Clean up all test clusters (use with caution!)
 testClusterManager.cleanupTestClusters(".*test.*");
 
-// Clean up only isolated clusters
-testClusterManager.cleanupIsolatedClusters();
+// Clean up only ephemeral clusters
+testClusterManager.cleanupEphemeralClusters();
 
 // Clean up clusters older than X days (future enhancement)
 testClusterManager.cleanupByAge(Duration.ofDays(7));
@@ -304,7 +314,7 @@ testClusterManager.cleanupByAge(Duration.ofDays(7));
 
 1. **Identify Test Type**:
    - Read-only tests → Use `getSharedFlexCluster()`
-   - Destructive tests → Use `createIsolatedCluster(testInfo, ...)`
+   - Destructive tests → Use `createEphemeralCluster(testInfo, ...)`
 
 2. **Remove Manual Cluster Creation**:
    ```java
@@ -318,7 +328,7 @@ testClusterManager.cleanupByAge(Duration.ofDays(7));
    // New approach
    @Test
    void myTest(TestInfo testInfo) {
-       String clusterName = createIsolatedFlexCluster(testInfo);
+       String clusterName = createEphemeralFlexCluster(testInfo);
        // Test continues...
    }
    ```
@@ -336,7 +346,7 @@ testClusterManager.cleanupByAge(Duration.ofDays(7));
    }
    
    // New approach: Automatic cleanup via TestClusterManager
-   // No manual cleanup needed for isolated clusters
+   // No manual cleanup needed for ephemeral clusters
    ```
 
 ### Backwards Compatibility
@@ -350,8 +360,8 @@ The new system is designed to be backwards compatible:
 ## Best Practices
 
 1. **Choose the Right Cluster Type**:
-   - Shared clusters for read-only, non-destructive tests
-   - Isolated clusters for creation, deletion, modification tests
+   - Shared test clusters for read-only, non-destructive tests
+   - Ephemeral test clusters for creation, deletion, modification tests
 
 2. **Implement Proper Timeouts**:
    ```java
@@ -366,7 +376,7 @@ The new system is designed to be backwards compatible:
    @Test
    void testClusterCreationWithCustomSettings(TestInfo testInfo) { ... }
    
-   // Isolated cluster name: isolated-test-mytest-testclustercreationwithcustomsettings-timestamp
+   // Ephemeral cluster name: ephemeral-test-mytest-testclustercreationwithcustomsettings-timestamp
    ```
 
 4. **Monitor Resource Usage**:

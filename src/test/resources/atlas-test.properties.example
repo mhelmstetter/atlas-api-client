@@ -35,10 +35,12 @@ debugLevel=0
 rateLimitEnabled=true
 
 # Cluster management settings
+# Note: "Shared" here refers to test clusters reused across tests, not Atlas shared tier (M0/M2/M5)
+# "Ephemeral" refers to test-specific clusters that are cleaned up, not Atlas service tiers
 clusterReuseEnabled=true
 sharedClustersEnabled=true
 clusterTimeoutMinutes=15
-cleanupIsolatedClusters=true
+cleanupEphemeralClusters=true
 
 # =============================================================================
 # EXAMPLE CONFIGURATIONS

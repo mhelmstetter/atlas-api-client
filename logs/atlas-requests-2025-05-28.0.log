@@ -1,0 +1,5 @@
+15:03:35.952 INFO  - [15:03:35.952] Request #1: /groups
+15:03:37.070 INFO  - [15:03:37.070] Request #1: /groups/664bf2a3af8f227bd7fa8356/clusters (Project: 664bf2a3af8f227bd7fa8356)
+15:03:37.473 INFO  - [15:03:37.473] Request #1: /groups/664bf8eb7eaba87090bf4c35/clusters (Project: 664bf8eb7eaba87090bf4c35)
+15:21:50.922 INFO  - [15:21:50.922] Request #1: /groups
+15:21:52.588 INFO  - [15:21:52.588] Request #1: /groups/664bf2a3af8f227bd7fa8356/clusters (Project: 664bf2a3af8f227bd7fa8356)
