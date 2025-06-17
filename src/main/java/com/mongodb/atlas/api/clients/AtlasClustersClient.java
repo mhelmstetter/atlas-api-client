@@ -145,6 +145,40 @@ public class AtlasClustersClient {
     }
     
     /**
+     * Update an existing Atlas cluster
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The name of the cluster to update
+     * @param updateSpec Map containing the fields to update
+     * @return Map containing cluster update response
+     */
+    public Map<String, Object> modifyCluster(String projectId, String clusterName, 
+                                           Map<String, Object> updateSpec) {
+        logger.info("Updating cluster '{}' in project {}", clusterName, projectId);
+        
+        try {
+            String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + clusterName;
+            String requestBody = objectMapper.writeValueAsString(updateSpec);
+            
+            logger.debug("Cluster update payload: {}", requestBody);
+            
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.PATCH, requestBody, 
+                                                       AtlasApiBase.API_VERSION_V2, projectId);
+            
+            Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+            logger.info("Cluster '{}' updated successfully", clusterName);
+            
+            return response;
+            
+        } catch (Exception e) {
+            logger.error("Failed to update cluster '{}' in project {}: {}", 
+                        clusterName, projectId, e.getMessage());
+            throw new AtlasApiBase.AtlasApiException(
+                    "Failed to update cluster '" + clusterName + "'", e);
+        }
+    }
+    
+    /**
      * Get cluster status by name
      * 
      * @param projectId The Atlas project ID
