@@ -4,6 +4,7 @@
 *.tgz
 *.gz
 *.log
+*.class
 logs/
 charts/
 homebrew*/
@@ -14,3 +15,4 @@ mongo-launcher*/
 *.rb
 *.tar.gz
 index.html
+*.py
