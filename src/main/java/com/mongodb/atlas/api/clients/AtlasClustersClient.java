@@ -104,7 +104,7 @@ public class AtlasClustersClient {
     }
     
     /**
-     * Create a new Atlas cluster
+     * Create a new Atlas replica set cluster
      * 
      * @param projectId The Atlas project ID
      * @param clusterName The name for the new cluster
@@ -141,6 +141,61 @@ public class AtlasClustersClient {
                         clusterName, projectId, e.getMessage());
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to create cluster '" + clusterName + "'", e);
+        }
+    }
+    
+    /**
+     * Create a new Atlas sharded cluster
+     * 
+     * @param projectId The Atlas project ID
+     * @param clusterName The name for the new cluster
+     * @param instanceSize The instance size (must be M30+ for sharded clusters)
+     * @param mongoVersion The MongoDB version (e.g., "7.0", "6.0")
+     * @param region The cloud region (e.g., "US_EAST_1")
+     * @param cloudProvider The cloud provider (e.g., "AWS", "GCP", "AZURE")
+     * @param numShards Number of shards (1-70)
+     * @return Map containing cluster creation response
+     */
+    public Map<String, Object> createShardedCluster(String projectId, String clusterName, 
+                                                   String instanceSize, String mongoVersion, 
+                                                   String region, String cloudProvider, int numShards) {
+        logger.info("Creating Atlas sharded cluster '{}' with {} shards in project {}", 
+                   clusterName, numShards, projectId);
+        
+        // Validate minimum instance size for sharded clusters
+        if (!isValidShardedInstanceSize(instanceSize)) {
+            throw new IllegalArgumentException(
+                "Sharded clusters require instance size M30 or larger. Provided: " + instanceSize);
+        }
+        
+        // Validate number of shards
+        if (numShards < 1 || numShards > 70) {
+            throw new IllegalArgumentException(
+                "Number of shards must be between 1 and 70. Provided: " + numShards);
+        }
+        
+        try {
+            Map<String, Object> clusterSpec = buildShardedClusterSpec(clusterName, instanceSize, 
+                                                                     mongoVersion, region, cloudProvider, numShards);
+            
+            String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters";
+            String requestBody = objectMapper.writeValueAsString(clusterSpec);
+            
+            logger.debug("Sharded cluster creation payload: {}", requestBody);
+            
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.POST, requestBody, 
+                                                       AtlasApiBase.API_VERSION_V2, projectId);
+            
+            Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+            logger.info("Sharded cluster '{}' creation initiated successfully", clusterName);
+            
+            return response;
+            
+        } catch (Exception e) {
+            logger.error("Failed to create sharded cluster '{}' in project {}: {}", 
+                        clusterName, projectId, e.getMessage());
+            throw new AtlasApiBase.AtlasApiException(
+                    "Failed to create sharded cluster '" + clusterName + "'", e);
         }
     }
     
@@ -510,5 +565,123 @@ public class AtlasClustersClient {
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to get cluster summary for '" + clusterName + "'", e);
         }
+    }
+    
+    // ========================================================================
+    // Sharded Cluster Helper Methods
+    // ========================================================================
+    
+    /**
+     * Validate if an instance size is valid for sharded clusters
+     * Sharded clusters require M30 or larger instance sizes
+     * 
+     * @param instanceSize The instance size to validate
+     * @return true if valid for sharded clusters
+     */
+    private boolean isValidShardedInstanceSize(String instanceSize) {
+        if (instanceSize == null) {
+            return false;
+        }
+        
+        // Valid sharded cluster instance sizes (M30 and above)
+        String[] validSizes = {"M30", "M40", "M50", "M60", "M80", "M140", "M200", "M300"};
+        
+        for (String validSize : validSizes) {
+            if (validSize.equalsIgnoreCase(instanceSize)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Build cluster specification for sharded clusters
+     */
+    private Map<String, Object> buildShardedClusterSpec(String clusterName, String instanceSize, 
+                                                       String mongoVersion, String region, 
+                                                       String cloudProvider, int numShards) {
+        Map<String, Object> spec = new HashMap<>();
+        spec.put("name", clusterName);
+        spec.put("mongoDBMajorVersion", mongoVersion);
+        spec.put("clusterType", "SHARDED");
+        
+        // Build replication specs for sharded cluster
+        Map<String, Object> replicationSpec = new HashMap<>();
+        replicationSpec.put("numShards", numShards);
+        
+        // Configure regions for shards
+        Map<String, Object> regionConfig = new HashMap<>();
+        regionConfig.put("providerName", cloudProvider.toUpperCase());
+        regionConfig.put("priority", 7);
+        regionConfig.put("regionName", region.toUpperCase());
+        
+        // Configure shard nodes (electable nodes for each shard)
+        Map<String, Object> electableSpecs = new HashMap<>();
+        electableSpecs.put("instanceSize", instanceSize);
+        electableSpecs.put("nodeCount", 3); // 3 nodes per shard (standard)
+        regionConfig.put("electableSpecs", electableSpecs);
+        
+        // Optional: Configure read-only nodes (analytics nodes)
+        Map<String, Object> readOnlySpecs = new HashMap<>();
+        readOnlySpecs.put("instanceSize", instanceSize);
+        readOnlySpecs.put("nodeCount", 0); // No read-only nodes by default
+        regionConfig.put("readOnlySpecs", readOnlySpecs);
+        
+        // Optional: Configure analytics nodes
+        Map<String, Object> analyticsSpecs = new HashMap<>();
+        analyticsSpecs.put("instanceSize", instanceSize);
+        analyticsSpecs.put("nodeCount", 0); // No analytics nodes by default
+        regionConfig.put("analyticsSpecs", analyticsSpecs);
+        
+        replicationSpec.put("regionConfigs", List.of(regionConfig));
+        spec.put("replicationSpecs", List.of(replicationSpec));
+        
+        // Additional sharded cluster settings
+        spec.put("backupEnabled", false); // Can be enabled later
+        spec.put("providerBackupEnabled", false);
+        spec.put("autoScaling", buildAutoScalingSpec(false)); // Disabled by default
+        
+        return spec;
+    }
+    
+    /**
+     * Build auto-scaling specification
+     */
+    private Map<String, Object> buildAutoScalingSpec(boolean enabled) {
+        Map<String, Object> autoScaling = new HashMap<>();
+        
+        Map<String, Object> diskGBEnabled = new HashMap<>();
+        diskGBEnabled.put("enabled", enabled);
+        autoScaling.put("diskGBEnabled", diskGBEnabled);
+        
+        Map<String, Object> compute = new HashMap<>();
+        compute.put("enabled", enabled);
+        compute.put("scaleDownEnabled", enabled);
+        if (enabled) {
+            compute.put("minInstanceSize", "M30");
+            compute.put("maxInstanceSize", "M80");
+        }
+        autoScaling.put("compute", compute);
+        
+        return autoScaling;
+    }
+    
+    /**
+     * Get recommended instance sizes for sharded clusters
+     * 
+     * @return Array of valid instance sizes for sharded clusters
+     */
+    public static String[] getShardedClusterInstanceSizes() {
+        return new String[]{"M30", "M40", "M50", "M60", "M80", "M140", "M200", "M300"};
+    }
+    
+    /**
+     * Get maximum number of shards allowed
+     * 
+     * @return Maximum number of shards (70 for Atlas)
+     */
+    public static int getMaxShards() {
+        return 70;
     }
 }

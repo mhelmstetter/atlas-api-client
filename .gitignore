@@ -16,3 +16,4 @@ mongo-launcher*/
 *.tar.gz
 index.html
 *.py
+/open_api_spec_2025-03-12.json

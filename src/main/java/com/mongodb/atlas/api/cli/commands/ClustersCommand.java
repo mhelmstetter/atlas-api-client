@@ -146,6 +146,12 @@ public class ClustersCommand implements Callable<Integer> {
         @Option(names = {"--wait"}, description = "Wait for cluster to be ready")
         private boolean waitForReady;
 
+        @Option(names = {"--sharded"}, description = "Create a sharded cluster")
+        private boolean sharded;
+
+        @Option(names = {"--num-shards"}, description = "Number of shards (1-70, only for sharded clusters)", defaultValue = "2")
+        private int numShards;
+
         @Override
         public Integer call() throws Exception {
             AtlasTestConfig config = GlobalConfig.getAtlasConfig();
@@ -160,14 +166,40 @@ public class ClustersCommand implements Callable<Integer> {
                 AtlasApiBase apiBase = new AtlasApiBase(config.getApiPublicKey(), config.getApiPrivateKey());
                 AtlasClustersClient client = new AtlasClustersClient(apiBase);
                 
-                System.out.println("🚀 Creating cluster '" + clusterName + "'...");
+                String clusterType = sharded ? "sharded cluster" : "replica set cluster";
+                System.out.println("🚀 Creating " + clusterType + " '" + clusterName + "'...");
+                System.out.println("   Type: " + (sharded ? "Sharded" : "Replica Set"));
                 System.out.println("   Size: " + instanceSize);
+                if (sharded) {
+                    System.out.println("   Shards: " + numShards);
+                    System.out.println("   Total Nodes: " + (numShards * 3) + " (3 per shard)");
+                    
+                    // Validate instance size for sharded clusters
+                    String[] validSizes = com.mongodb.atlas.api.clients.AtlasClustersClient.getShardedClusterInstanceSizes();
+                    boolean validSize = false;
+                    for (String validSize1 : validSizes) {
+                        if (validSize1.equalsIgnoreCase(instanceSize)) {
+                            validSize = true;
+                            break;
+                        }
+                    }
+                    if (!validSize) {
+                        System.err.println("❌ Error: Sharded clusters require instance size M30 or larger. Provided: " + instanceSize);
+                        return 1;
+                    }
+                }
                 System.out.println("   Version: " + mongoVersion);
                 System.out.println("   Region: " + region);
                 System.out.println("   Provider: " + cloudProvider);
                 
-                Map<String, Object> cluster = client.createCluster(
-                    effectiveProjectId, clusterName, instanceSize, mongoVersion, region, cloudProvider);
+                Map<String, Object> cluster;
+                if (sharded) {
+                    cluster = client.createShardedCluster(
+                        effectiveProjectId, clusterName, instanceSize, mongoVersion, region, cloudProvider, numShards);
+                } else {
+                    cluster = client.createCluster(
+                        effectiveProjectId, clusterName, instanceSize, mongoVersion, region, cloudProvider);
+                }
                 
                 System.out.println("✅ Cluster creation initiated successfully!");
                 OutputFormatter.printClusterDetails(cluster, GlobalConfig.getFormat());

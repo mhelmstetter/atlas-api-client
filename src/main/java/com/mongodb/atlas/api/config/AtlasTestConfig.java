@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
  * Supports both properties files and environment variables with precedence:
  * 1. System properties (command line -D)
  * 2. Environment variables
- * 3. Properties file (atlas-test.properties)
+ * 3. Properties file (atlas-client.properties)
  * 4. Default values
  */
 public class AtlasTestConfig {
@@ -44,7 +44,7 @@ public class AtlasTestConfig {
     
     
     // Default properties file name
-    public static final String DEFAULT_PROPERTIES_FILE = "atlas-test.properties";
+    public static final String DEFAULT_PROPERTIES_FILE = "atlas-client.properties";
     
     private static AtlasTestConfig instance;
     private final Properties properties;

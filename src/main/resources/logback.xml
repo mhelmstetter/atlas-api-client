@@ -27,7 +27,7 @@
     </logger>
     
     <!-- Atlas API loggers - only show warnings/errors on console -->
-    <logger name="com.mongodb.atlas" level="WARN"/>
+    <logger name="com.mongodb.atlas" level="DEBUG"/>
     
     <!-- Root logger -->
     <root level="INFO">

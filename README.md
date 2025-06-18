@@ -98,6 +98,91 @@ java -jar bin/AtlasClient.jar \
   --exportCsv=true
 ```
 
+## Atlas CLI - Comprehensive Command-Line Interface
+
+This project also includes a comprehensive CLI for all Atlas operations, including alerts management:
+
+### CLI Configuration
+
+The CLI supports loading defaults from a properties file. By default, it looks for `atlas-client.properties` in the current directory.
+
+```properties
+# atlas-client.properties
+apiPublicKey=your_atlas_public_key
+apiPrivateKey=your_atlas_private_key
+projectIds=proj1,proj2,proj3
+includeProjectNames=Production,Staging
+orgId=your_org_id
+format=JSON
+```
+
+You can specify a different config file with `--config`:
+```bash
+./atlas-cli --config my-config.properties alerts list
+```
+
+### CLI Usage
+
+```bash
+# Make the CLI executable (first time only)
+chmod +x atlas-cli
+
+# Show all available commands
+./atlas-cli --help
+
+# Interactive mode
+./atlas-cli --interactive
+
+# Set credentials globally (applies to all commands)
+./atlas-cli --apiPublicKey=your_key --apiPrivateKey=your_secret
+
+# Multiple projects support
+./atlas-cli --projectIds=proj1,proj2,proj3 alerts list
+./atlas-cli --includeProjectNames="Production,Staging" clusters list
+
+# List alerts for a project
+./atlas-cli alerts list <project-id>
+
+# Get specific alert details
+./atlas-cli alerts get <project-id> <alert-id>
+
+# Acknowledge an alert
+./atlas-cli alerts acknowledge <project-id> <alert-id> --permanent --comment "Maintenance window"
+
+# List alert configurations
+./atlas-cli alert-configs list <project-id>
+
+# Create a metric-based alert
+./atlas-cli alert-configs create-metric <project-id> \
+  --metric CONNECTIONS \
+  --operator GREATER_THAN \
+  --threshold 100 \
+  --email admin@company.com
+
+# Cluster management
+./atlas-cli clusters list <project-id>
+./atlas-cli clusters create my-cluster --size M10 --region US_EAST_1 --provider AWS
+
+# API key management
+./atlas-cli api-keys list <org-id>
+./atlas-cli api-keys create "Monitoring Key" --roles ORG_READ_ONLY
+```
+
+### CLI Features
+
+- **🚨 Alerts Management**: Full CRUD operations for alerts and alert configurations
+- **🏗️ Cluster Management**: Create, update, delete, and monitor clusters
+- **🔑 API Key Management**: Programmatic API key lifecycle management
+- **👥 Database Users**: User account management across projects
+- **🌐 Network Access**: IP allowlist and VPC peering management
+- **💾 Backups**: Backup policy and restore operations
+- **📊 Monitoring**: Metrics collection and analysis
+- **📁 Projects**: Project management and configuration
+- **🔧 Multi-Project Support**: Work with multiple projects using `--projectIds` or `--includeProjectNames`
+- **⚙️ Consistent Configuration**: CamelCase parameters matching AtlasMetricsAnalyzer style
+
+See [ATLAS-CLI-GUIDE.md](ATLAS-CLI-GUIDE.md) for comprehensive CLI documentation.
+
 ## Configuration Reference
 
 ### Required Configuration
