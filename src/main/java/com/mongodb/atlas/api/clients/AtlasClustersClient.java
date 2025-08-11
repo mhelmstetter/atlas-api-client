@@ -73,14 +73,19 @@ public class AtlasClustersClient {
      * @param clusterName The name of the cluster
      * @return List of process objects for the specified cluster
      */
-    // TODO this is busted, does not filter clusterName
     public List<Map<String, Object>> getProcessesForCluster(String projectId, String clusterName) {
         logger.info("Fetching processes for cluster '{}' in project {}", clusterName, projectId);
         
         try {
             // Get all processes for the project
             List<Map<String, Object>> allProcesses = getProcesses(projectId);
-            
+
+            /* The userAlias field starts with the name of the cluster */
+            List<Map<String, Object>> clusterProcesses = allProcesses.stream().
+                    filter(p -> p.containsKey("userAlias") &&
+                            p.get("userAlias").toString().startsWith(clusterName))
+                    .toList();
+
             // Filter processes that belong to the specified cluster
 //            List<Map<String, Object>> clusterProcesses = allProcesses.stream()
 //                    .filter(process -> {
@@ -90,10 +95,10 @@ public class AtlasClustersClient {
 //                    .collect(Collectors.toList());
             
             logger.info("Found {} processes in project {}", 
-            		allProcesses.size(), projectId);
+            		clusterProcesses.size(), projectId);
             
             
-            return allProcesses;
+            return clusterProcesses;
             
         } catch (Exception e) {
             logger.error("Failed to retrieve processes for cluster '{}' in project {}: {}", 
