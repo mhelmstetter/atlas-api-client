@@ -403,4 +403,32 @@ public class AtlasLogsClient {
             .distinct()
             .collect(Collectors.toList());
     }
+    
+    /**
+     * Get database access logs (authentication attempts) for a cluster
+     */
+    public List<Map<String, Object>> getAccessLogsForCluster(String projectId, String clusterName, 
+                                                           String startDate, String endDate, int limit) {
+        // Build URL for access logs endpoint
+        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + 
+                   "/dbAccessHistory/clusters/" + clusterName;
+
+        // Add query parameters
+        StringBuilder queryParams = new StringBuilder();
+        if (startDate != null) {
+            queryParams.append("start=").append(startDate).append("&");
+        }
+        if (endDate != null) {
+            queryParams.append("end=").append(endDate).append("&");
+        }
+        queryParams.append("itemsPerPage=").append(limit);
+
+        if (queryParams.length() > 0) {
+            url += "?" + queryParams.toString();
+        }
+
+        logger.info("Fetching access logs from URL: {}", url);
+        String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
+        return apiBase.extractResults(responseBody);
+    }
 }

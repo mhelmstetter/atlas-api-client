@@ -44,7 +44,7 @@ public class AtlasTestConfig {
     
     
     // Default properties file name
-    public static final String DEFAULT_PROPERTIES_FILE = "atlas-client.properties";
+    public static final String DEFAULT_PROPERTIES_FILE = "atlas-test.properties";
     
     private static AtlasTestConfig instance;
     private final Properties properties;
@@ -61,6 +61,14 @@ public class AtlasTestConfig {
             instance = new AtlasTestConfig();
         }
         return instance;
+    }
+    
+    /**
+     * Force refresh of the singleton instance (useful when system properties change)
+     */
+    public static synchronized void refreshInstance() {
+        instance = null;
+        instance = new AtlasTestConfig();
     }
     
     /**
@@ -121,6 +129,21 @@ public class AtlasTestConfig {
         System.getProperties().entrySet().stream()
             .filter(entry -> entry.getKey().toString().startsWith("atlas."))
             .forEach(entry -> config.setProperty(entry.getKey().toString(), entry.getValue().toString()));
+        
+        // Load specific Atlas configuration properties
+        String[] atlasProps = {
+            API_PUBLIC_KEY, API_PRIVATE_KEY, TEST_PROJECT_ID, TEST_ORG_ID,
+            TEST_REGION, TEST_CLOUD_PROVIDER, TEST_MONGO_VERSION, DEBUG_LEVEL,
+            RATE_LIMIT_ENABLED, CLUSTER_REUSE_ENABLED, SHARED_CLUSTERS_ENABLED,
+            CLUSTER_TIMEOUT_MINUTES, CLEANUP_EPHEMERAL_CLUSTERS
+        };
+        
+        for (String propKey : atlasProps) {
+            String sysValue = System.getProperty(propKey);
+            if (sysValue != null && !sysValue.trim().isEmpty()) {
+                config.setProperty(propKey, sysValue);
+            }
+        }
         
         logger.debug("System properties loaded");
     }

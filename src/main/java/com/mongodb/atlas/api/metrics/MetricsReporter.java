@@ -332,8 +332,19 @@ public class MetricsReporter {
     public void generateDataAvailabilityReport(Set<String> projectNames) {
         logger.info("=== DATA AVAILABILITY REPORT ===");
         
+        if (projectNames == null || projectNames.isEmpty()) {
+            logger.warn("No project names provided for data availability report");
+            return;
+        }
+        
+        logger.info("Checking data availability for {} projects: {}", projectNames.size(), projectNames);
+        logger.info("Looking for {} metrics: {}", metrics.size(), metrics);
+        
         for (String projectName : projectNames) {
+            logger.info("");
             logger.info("Project: {}", projectName);
+            
+            boolean foundData = false;
             
             for (String metric : metrics) {
                 try {
@@ -354,15 +365,23 @@ public class MetricsReporter {
                         logger.info("  {}: {} days of data ({} to {}), {} hosts, {} total points", 
                                 metric, daysBetween, earliest, latest, 
                                 hostGroups.size(), allData.size());
+                        foundData = true;
                     } else {
                         logger.info("  {}: No data available", metric);
                     }
                     
                 } catch (Exception e) {
-                    logger.error("Error checking data availability for {} {}: {}", 
+                    logger.error("  Error checking data availability for {} {}: {}", 
                             projectName, metric, e.getMessage());
                 }
             }
+            
+            if (!foundData) {
+                logger.info("  ⚠️  No data found for any of the specified metrics in this project");
+            }
         }
+        
+        logger.info("");
+        logger.info("=== END DATA AVAILABILITY REPORT ===");
     }
 }

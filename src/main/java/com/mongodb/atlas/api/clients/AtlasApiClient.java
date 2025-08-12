@@ -41,6 +41,7 @@ public class AtlasApiClient {
     private final AtlasMonitoringClient monitoring;
     private final AtlasClustersClient clusters;
     private final AtlasLogsClient logs;
+    private final AtlasProjectsClient projects;
     
     public AtlasApiClient(String apiPublicKey, String apiPrivateKey) {
         this(apiPublicKey, apiPrivateKey, 2);
@@ -51,11 +52,19 @@ public class AtlasApiClient {
         this.monitoring = new AtlasMonitoringClient(apiBase);
         this.clusters = new AtlasClustersClient(apiBase);
         this.logs = new AtlasLogsClient(apiBase, this);
+        this.projects = new AtlasProjectsClient(apiBase);
     }
     
     
     public AtlasClustersClient clusters() {
         return clusters;
+    }
+    
+    /**
+     * Get the projects client
+     */
+    public AtlasProjectsClient projects() {
+        return projects;
     }
     
     /**

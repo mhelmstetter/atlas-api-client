@@ -9,9 +9,9 @@
 	<name>atlas-client</name>
 	<url>http://maven.apache.org</url>
 	<properties>
-		<java.version>17</java.version>
-		<maven.compiler.source>17</maven.compiler.source>
-		<maven.compiler.target>17</maven.compiler.target>
+		<java.version>11</java.version>
+		<maven.compiler.source>11</maven.compiler.source>
+		<maven.compiler.target>11</maven.compiler.target>
 	</properties>
 	
 		<build>
@@ -59,6 +59,7 @@
 					<includes>
 						<include>**/*Test.java</include>
 						<include>**/*Tests.java</include>
+						<include>**/*IntegrationTest.java</include>
 					</includes>
 					<systemPropertyVariables>
 						<atlas.test.project.id>${env.ATLAS_TEST_PROJECT_ID}</atlas.test.project.id>
@@ -159,7 +160,13 @@
 		</dependency>
 		<dependency>
 			<groupId>org.junit.platform</groupId>
-			<artifactId>junit-platform-runner</artifactId>
+			<artifactId>junit-platform-launcher</artifactId>
+			<version>1.10.0</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.junit.platform</groupId>
+			<artifactId>junit-platform-suite-api</artifactId>
 			<version>1.10.0</version>
 			<scope>test</scope>
 		</dependency>

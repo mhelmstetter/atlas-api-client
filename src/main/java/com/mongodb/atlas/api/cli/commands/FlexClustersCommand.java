@@ -20,6 +20,7 @@ import java.util.concurrent.Callable;
 @Command(
     name = "flex-clusters",
     description = "Manage Atlas Flex clusters (serverless, pay-as-you-go)",
+    mixinStandardHelpOptions = true,
     subcommands = {
         FlexClustersCommand.ListCommand.class,
         FlexClustersCommand.GetCommand.class,

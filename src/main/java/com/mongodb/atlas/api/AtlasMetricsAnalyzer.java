@@ -93,6 +93,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--debug" }, description = "Enable debug logging for troubleshooting", required = false, defaultValue = "false")
     private boolean debug;
     
+    @Option(names = { "--interactive" }, description = "Enable interactive mode for long-running operations", required = false, defaultValue = "false")
+    private boolean interactive;
+    
     // Storage options (automatically enabled when mongodbUri is provided)
     
     @Option(names = { "--collect" }, description = "Only collect and store metrics without processing or reporting", required = false, defaultValue = "false")
@@ -110,6 +113,9 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     @Option(names = { "--reportFromStorage" }, description = "Generate report from stored data instead of API", required = false, defaultValue = "false")
     private boolean reportFromStorage;
     
+    @Option(names = { "--dataAvailabilityOnly" }, description = "Only generate data availability report without collecting new data", required = false, defaultValue = "false")
+    private boolean dataAvailabilityOnly;
+    
     
     // Service components
     private AtlasApiClient apiClient;
@@ -121,19 +127,19 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
     public Integer call() throws Exception {
         
         // Validate options
-        if (reportFromStorage && (mongodbUri == null || mongodbUri.isEmpty())) {
-            logger.error("MongoDB URI is required when --reportFromStorage is enabled");
+        if ((reportFromStorage || dataAvailabilityOnly) && (mongodbUri == null || mongodbUri.isEmpty())) {
+            logger.error("MongoDB URI is required when --reportFromStorage or --dataAvailabilityOnly is enabled");
             return 1;
         }
         
-        if (!reportFromStorage && (apiPublicKey == null || apiPrivateKey == null)) {
-            logger.error("Atlas API credentials are required when not using --reportFromStorage");
+        if (!reportFromStorage && !dataAvailabilityOnly && (apiPublicKey == null || apiPrivateKey == null)) {
+            logger.error("Atlas API credentials are required when not using --reportFromStorage or --dataAvailabilityOnly");
             return 1;
         }
         
         // Initialize metrics storage if needed
         boolean enableStorage = (mongodbUri != null && !mongodbUri.isEmpty());
-        if (enableStorage || reportFromStorage) {
+        if (enableStorage || reportFromStorage || dataAvailabilityOnly) {
             if (mongodbUri == null || mongodbUri.isEmpty()) {
                 logger.error("MongoDB URI is required for storage operations");
                 return 1;
@@ -142,7 +148,7 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
             try {
                 logger.info("Initializing metrics storage: database={}, collection={}", 
                         mongodbDatabase, mongodbCollection);
-                this.metricsStorage = new MetricsStorage(mongodbUri, mongodbDatabase, mongodbCollection);
+                this.metricsStorage = new MetricsStorage(mongodbUri, mongodbDatabase, mongodbCollection, interactive);
             } catch (Exception e) {
                 logger.error("Failed to initialize metrics storage: {}", e.getMessage(), e);
                 return 1;
@@ -150,7 +156,7 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         }
         
         // Initialize API client if not using storage-only mode
-        if (!reportFromStorage) {
+        if (!reportFromStorage && !dataAvailabilityOnly) {
             int debugLevel = debug ? 1 : 0;
             this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, debugLevel);
         }
@@ -158,8 +164,26 @@ public class AtlasMetricsAnalyzer implements Callable<Integer> {
         Map<String, ProjectMetricsResult> results = null;
         
         
+        // Data availability only mode
+        if (dataAvailabilityOnly) {
+            logger.info("Running data availability report only...");
+            
+            if (metricsStorage == null) {
+                logger.error("Storage not initialized - cannot generate data availability report");
+                return 1;
+            }
+            
+            this.metricsReporter = new MetricsReporter(metricsStorage, metrics, false);
+            
+            logger.info("Generating data availability report...");
+            metricsReporter.generateDataAvailabilityReport(includeProjectNames);
+            
+            logger.info("Data availability report complete");
+            return 0;
+        }
+        
         // Report from storage mode
-        if (reportFromStorage) {
+        else if (reportFromStorage) {
             logger.info("Generating report from stored data...");
             
             this.metricsReporter = new MetricsReporter(metricsStorage, metrics, false);

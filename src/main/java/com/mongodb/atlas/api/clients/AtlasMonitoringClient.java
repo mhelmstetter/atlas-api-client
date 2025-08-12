@@ -419,6 +419,45 @@ public class AtlasMonitoringClient {
         }
     }
     
+    /**
+     * Get disk measurements using explicit start and end timestamps
+     */
+    public List<Map<String, Object>> getDiskMeasurementsWithExplicitTimeRange(
+            String projectId, String hostname, int port, String partitionName,
+            List<String> metrics, String granularity, 
+            Instant startTime, Instant endTime) {
+        
+        String processId = hostname + ":" + port;
+        String metricParams = apiBase.formatMetricsParam(metrics);
+        
+        String endTimeStr = endTime.toString();
+        String startTimeStr = startTime.toString();
+        
+        logger.info("Fetching disk measurements for {}:{} partition {} from {} to {}", 
+                hostname, port, partitionName, startTimeStr, endTimeStr);
+        
+        try {
+            String url = AtlasApiBase.BASE_URL_V1 + "/groups/" + projectId + "/processes/" + processId + 
+                    "/disks/" + partitionName + "/measurements" +
+                    "?granularity=" + granularity + 
+                    "&start=" + startTimeStr +
+                    "&end=" + endTimeStr +
+                    "&" + metricParams;
+            
+            logger.debug("Calling disk measurements URL with explicit timerange: {}", url);
+            String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V1, projectId);
+            
+            Map<String, Object> responseMap = apiBase.parseResponse(responseBody, Map.class);
+            List<Map<String, Object>> measurements = (List<Map<String, Object>>) responseMap.get("measurements");
+            
+            return measurements != null ? measurements : new ArrayList<>();
+        } catch (Exception e) {
+            logger.error("Error fetching disk measurements for {}:{} partition {}: {}", 
+                    hostname, port, partitionName, e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+    
     private void mergeDataPoints(List<Map<String, Object>> existingMeasurements, 
                                 List<Map<String, Object>> newPageMeasurements) {
         Map<String, Map<String, Object>> existingMap = new HashMap<>();

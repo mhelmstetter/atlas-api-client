@@ -1,6 +1,13 @@
-# Atlas Metrics Analyzer
+# Atlas API Client Tools
 
-A comprehensive MongoDB Atlas API client for metrics collection, analysis, and reporting. This tool helps you understand your Atlas usage patterns, generate visual reports, and export data for further analysis.
+This project provides two comprehensive command-line tools for MongoDB Atlas:
+
+1. **Atlas Metrics Analyzer** (`atlas-metrics`) - Specialized tool for metrics collection, analysis, and reporting
+2. **Atlas CLI** (`atlas-cli`) - General-purpose CLI for all Atlas API operations (clusters, alerts, users, etc.)
+
+## Atlas Metrics Analyzer
+
+A specialized tool for MongoDB Atlas metrics collection, analysis, and reporting. This tool helps you understand your Atlas usage patterns, generate visual reports, and export data for further analysis.
 
 ## Key Capabilities
 
@@ -86,16 +93,25 @@ generateCharts=true
 #### 2. Run the Analyzer
 
 ```bash
+# Make the script executable (first time only)
+chmod +x bin/atlas-metrics
+
 # Using configuration file
-java -jar bin/AtlasClient.jar --config atlas-client.properties
+./bin/atlas-metrics --config atlas-client.properties
 
 # Or with command line parameters
-java -jar bin/AtlasClient.jar \
+./bin/atlas-metrics \
   --apiPublicKey=your_public_key \
   --apiPrivateKey=your_private_key \
   --includeProjectNames=MyProject \
   --metrics=CONNECTIONS,OPCOUNTER_QUERY \
   --exportCsv=true
+
+# Show help
+./bin/atlas-metrics --help
+
+# Alternative: Run directly with Java
+java -cp bin/AtlasClient.jar com.mongodb.atlas.api.AtlasMetricsAnalyzer [OPTIONS]
 ```
 
 ## Atlas CLI - Comprehensive Command-Line Interface
@@ -314,7 +330,7 @@ And many more - see Atlas documentation for complete list.
 Collect basic metrics and export to CSV:
 
 ```bash
-java -jar bin/AtlasClient.jar \
+./bin/atlas-metrics \
   --apiPublicKey=abc123 \
   --apiPrivateKey=def456 \
   --includeProjectNames=Production \
@@ -327,7 +343,7 @@ java -jar bin/AtlasClient.jar \
 Create charts and HTML dashboard:
 
 ```bash
-java -jar bin/AtlasClient.jar \
+./bin/atlas-metrics \
   --config=atlas-client.properties \
   --generateCharts=true \
   --darkMode=true \
@@ -340,7 +356,7 @@ java -jar bin/AtlasClient.jar \
 Create visual charts from metrics data:
 
 ```bash
-java -jar bin/AtlasClient.jar \
+./bin/atlas-metrics \
   --config=atlas-client.properties \
   --generateCharts=true
 ```
@@ -350,7 +366,7 @@ java -jar bin/AtlasClient.jar \
 Just collect and store data for later analysis:
 
 ```bash
-java -jar bin/AtlasClient.jar \
+./bin/atlas-metrics \
   --config=atlas-client.properties \
   --collect=true
 ```
@@ -413,7 +429,7 @@ General Options:
 ### 1. Start Small
 Begin with a single project and basic metrics:
 ```bash
-java -jar bin/AtlasClient.jar \
+./bin/atlas-metrics \
   --apiPublicKey=your_key \
   --apiPrivateKey=your_private_key \
   --includeProjectNames=TestProject \
@@ -439,13 +455,13 @@ Set up regular metrics collection:
 ```bash
 # Daily collection script
 #!/bin/bash
-java -jar atlas-metrics-analyzer.jar \
+./bin/atlas-metrics \
   --config=daily-collection.properties \
   --collect=true
 
 # Weekly reporting script  
 #!/bin/bash
-java -jar atlas-metrics-analyzer.jar \
+./bin/atlas-metrics \
   --config=weekly-report.properties \
   --generateCharts=true
 ```
@@ -511,7 +527,7 @@ Data availability reports are automatically generated when MongoDB storage is en
 
 Enable debug logging for troubleshooting:
 ```bash
-java -jar bin/AtlasClient.jar --debug [other options]
+./bin/atlas-metrics --debug [other options]
 ```
 
 This provides detailed information about:

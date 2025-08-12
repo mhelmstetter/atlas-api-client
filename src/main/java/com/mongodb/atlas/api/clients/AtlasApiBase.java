@@ -40,7 +40,7 @@ public class AtlasApiBase {
     // API base URLs and versions
     public static final String BASE_URL_V2 = "https://cloud.mongodb.com/api/atlas/v2";
     public static final String BASE_URL_V1 = "https://cloud.mongodb.com/api/atlas/v1.0";
-    public static final String API_VERSION_V2 = "application/vnd.atlas.2024-11-13+json";
+    public static final String API_VERSION_V2 = "application/vnd.atlas.2025-03-12+json";
     public static final String API_VERSION_V1 = "application/json";
     
     // Rate limiting constants
@@ -362,7 +362,7 @@ public class AtlasApiBase {
             long endTime = System.currentTimeMillis();
             
             if (debugLevel >= 2) {
-                requestLogger.info("Response time: {} ms for URL: {}", (endTime - startTime), url);
+                requestLogger.debug("Response time: {} ms for URL: {}", (endTime - startTime), url);
             }
             
             return response;
@@ -393,7 +393,7 @@ public class AtlasApiBase {
             long endTime = System.currentTimeMillis();
             
             if (debugLevel >= 2) {
-                requestLogger.info("BINARY RESPONSE: Success! Response time: {} ms for URL: {} ({} bytes)", 
+                requestLogger.debug("BINARY RESPONSE: Success! Response time: {} ms for URL: {} ({} bytes)", 
                                  (endTime - startTime), url, response != null ? response.length : 0);
             }
             
@@ -435,7 +435,7 @@ public class AtlasApiBase {
             long endTime = System.currentTimeMillis();
             
             if (debugLevel >= 2) {
-                requestLogger.info("Response time: {} ms for {} {}", (endTime - startTime), method, url);
+                requestLogger.debug("Response time: {} ms for {} {}", (endTime - startTime), method, url);
             }
             
             return response;
@@ -520,14 +520,14 @@ public class AtlasApiBase {
         
         if (debugLevel >= 1) {
             if (projectId != null) {
-                requestLogger.info("[{}] Request #{}: {} (Project: {})", time, requestNum, endpoint, projectId);
+                requestLogger.debug("[{}] Request #{}: {} (Project: {})", time, requestNum, endpoint, projectId);
             } else {
-                requestLogger.info("[{}] Request #{}: {}", time, requestNum, endpoint);
+                requestLogger.debug("[{}] Request #{}: {}", time, requestNum, endpoint);
             }
         }
         
         if (debugLevel >= 2) {
-            requestLogger.info("Full URL: {}", url);
+            requestLogger.debug("Full URL: {}", url);
         }
     }
     

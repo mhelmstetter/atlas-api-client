@@ -40,8 +40,8 @@ public class AtlasFlexClustersClient {
      * @return List of Flex clusters
      */
     public List<Map<String, Object>> getFlexClusters(String projectId) {
-        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters";
-        logger.info("Fetching Flex clusters for project {}", projectId);
+        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/flexClusters";
+        logger.info("Fetching Flex (serverless) clusters for project {}", projectId);
         String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
         return apiBase.extractResults(responseBody);
     }
@@ -161,7 +161,15 @@ public class AtlasFlexClustersClient {
             String responseBody = apiBase.makeApiRequest(url, HttpMethod.DELETE, null, 
                                                        AtlasApiBase.API_VERSION_V2, projectId);
             
-            Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+            Map<String, Object> response;
+            if (responseBody != null && !responseBody.trim().isEmpty()) {
+                response = objectMapper.readValue(responseBody, Map.class);
+            } else {
+                // DELETE often returns empty body - create a simple success response
+                response = new HashMap<>();
+                response.put("status", "DELETING");
+                response.put("message", "Flex cluster deletion initiated successfully");
+            }
             logger.info("Flex cluster '{}' deletion initiated successfully", clusterName);
             
             return response;

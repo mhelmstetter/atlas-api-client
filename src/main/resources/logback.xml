@@ -26,8 +26,21 @@
         <appender-ref ref="REQUEST_FILE" />
     </logger>
     
-    <!-- Atlas API loggers - only show warnings/errors on console -->
-    <logger name="com.mongodb.atlas" level="DEBUG"/>
+    <!-- Atlas API loggers - only show warnings/errors on console by default -->
+    <logger name="com.mongodb.atlas" level="WARN"/>
+    
+    <!-- MongoDB driver loggers - reduce noise -->
+    <logger name="org.mongodb.driver" level="WARN"/>
+    <logger name="com.mongodb" level="WARN"/>
+    
+    <!-- Show AtlasMetricsAnalyzer logs -->
+    <logger name="com.mongodb.atlas.api.AtlasMetricsAnalyzer" level="INFO"/>
+    
+    <!-- Show MetricsStorage logs for debugging -->
+    <logger name="com.mongodb.atlas.api.metrics.MetricsStorage" level="INFO"/>
+    
+    <!-- Show MetricsReporter logs for data availability reports -->
+    <logger name="com.mongodb.atlas.api.metrics.MetricsReporter" level="INFO"/>
     
     <!-- Root logger -->
     <root level="INFO">

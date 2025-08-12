@@ -1,5 +1,6 @@
 package com.mongodb.atlas.api.metrics;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
@@ -247,24 +248,43 @@ public class MetricsCollector {
 
 			// Process each MongoDB instance sequentially
 			int processedCount = 0;
+			logger.info("📊 Processing {} MongoDB instances for project {}", filteredProcesses.size(), projectName);
 
 			for (Map<String, Object> process : filteredProcesses) {
 				String hostname = (String) process.get("hostname");
 				int port = (int) process.get("port");
+				
+				// Log progress periodically (every 25% or every 5 instances, whichever is smaller)
+				int progressInterval = Math.max(1, Math.min(5, filteredProcesses.size() / 4));
+				if (processedCount % progressInterval == 0 || processedCount == filteredProcesses.size() - 1) {
+					logger.info("   🔄 Processing instance {}/{}: {}:{}", 
+						processedCount + 1, filteredProcesses.size(), hostname, port);
+				} else {
+					logger.debug("   🔄 Processing instance {}/{}: {}:{}", 
+						processedCount + 1, filteredProcesses.size(), hostname, port);
+				}
 
 				try {
 					// Collect system metrics
+					logger.debug("      Collecting system metrics for {}:{}...", hostname, port);
 					int systemPoints = collectSystemMetrics(projectName, projectId, hostname, port, result);
 					result.addDataPointsCollected(systemPoints);
+					logger.debug("      ✓ Collected {} system metric data points", systemPoints);
 
 					// Collect disk metrics if requested
 					if (metrics.stream().anyMatch(m -> m.startsWith("DISK_"))) {
+						logger.debug("      Collecting disk metrics for {}:{}...", hostname, port);
 						int diskPoints = collectDiskMetrics(projectName, projectId, hostname, port, result);
 						result.addDataPointsCollected(diskPoints);
+						logger.debug("      ✓ Collected {} disk metric data points", diskPoints);
 					}
 
-					// Update progress
+					// Update progress periodically
 					processedCount++;
+					if (processedCount % progressInterval == 0 || processedCount == filteredProcesses.size()) {
+						logger.info("   ✅ Completed {}/{} instances. Total data points: {}", 
+							processedCount, filteredProcesses.size(), result.getDataPointsCollected());
+					}
 				} catch (Exception e) {
 					// Log error but continue with other processes
 					logger.error("Error collecting metrics for process {}:{} in project {}: {}", hostname, port,
@@ -299,49 +319,60 @@ public class MetricsCollector {
 		try {
 			// Determine optimal time range for this process based on stored data
 			Instant startTime = null;
+			Instant endTime = Instant.now();
 
 			// If we're storing metrics, find the latest timestamp we have for this host
 			// to avoid fetching duplicate data
 			if (storeMetrics && metricsStorage != null) {
-				// First check if we have a global timestamp for this metric (non host-specific)
-				Instant globalLastTimestamp = null;
-
-				for (String metric : systemMetrics) {
-					Instant metricLastTimestamp = systemLastTimestamps.getOrDefault(metric, Instant.EPOCH);
-					if (!metricLastTimestamp.equals(Instant.EPOCH)) {
-						if (globalLastTimestamp == null || metricLastTimestamp.isBefore(globalLastTimestamp)) {
-							globalLastTimestamp = metricLastTimestamp;
-						}
-					}
-				}
-
-				// Next, get host-specific timestamps
+				// Get the most recent timestamp we have for ANY metric on this host
 				Instant hostLastTimestamp = null;
 
 				for (String metric : systemMetrics) {
 					// Get last timestamp for this specific host/metric combination
-					Instant metricLastTimestamp = metricsStorage.getLatestDataTime(projectName, processId, metric);
+					Instant metricLastTimestamp = metricsStorage.getLatestTimestampForHostMetric(processId, metric);
 
 					if (metricLastTimestamp != null && !metricLastTimestamp.equals(Instant.EPOCH)) {
-						if (hostLastTimestamp == null || metricLastTimestamp.isBefore(hostLastTimestamp)) {
+						if (hostLastTimestamp == null || metricLastTimestamp.isAfter(hostLastTimestamp)) {
 							hostLastTimestamp = metricLastTimestamp;
 						}
 					}
 				}
+
+				if (hostLastTimestamp != null && !hostLastTimestamp.equals(Instant.EPOCH)) {
+					// Start from 5 minutes before the latest timestamp to ensure no gaps
+					// This small overlap helps handle clock skew and ensures data continuity
+					startTime = hostLastTimestamp.minus(5, ChronoUnit.MINUTES);
+					logger.debug("         🕒 Using optimized time range: {} to {} (5min overlap from last known: {})", 
+							startTime, endTime, hostLastTimestamp);
+				} else {
+					// No previous data, use the full period
+					startTime = endTime.minus(Duration.parse(period));
+					logger.info("         🕒 No previous data found, using full period: {} to {}", startTime, endTime);
+				}
+			} else {
+				// Not storing metrics, use the full period
+				startTime = endTime.minus(Duration.parse(period));
+				logger.info("         🕒 Using full period: {} to {}", startTime, endTime);
 			}
 
-			// Fetch measurements from Atlas API
-			logger.debug("Fetching system metrics for {}:{} with period of {}", hostname, port, period);
+			// Skip if the time range is invalid (start time is in the future)
+			if (startTime.isAfter(endTime)) {
+				logger.info("         ✅ All data is up to date for this host (start time {} is after end time {})", startTime, endTime);
+				return 0;
+			}
 
-			List<Map<String, Object>> measurements = apiClient.monitoring().getProcessMeasurementsWithTimeRange(projectId, hostname, port, systemMetrics,
-					granularity, period);
+			// Fetch measurements from Atlas API using optimized time range
+			logger.debug("         📡 Fetching {} system metrics from Atlas API...", systemMetrics.size());
+
+			List<Map<String, Object>> measurements = apiClient.monitoring().getProcessMeasurementsWithExplicitTimeRange(
+					projectId, hostname, port, systemMetrics, granularity, startTime, endTime);
 
 			if (measurements == null || measurements.isEmpty()) {
-				logger.debug("{} {} -> No measurements data found", projectName, hostname + ":" + port);
+				logger.info("         ⚠️  No measurements data found for this instance");
 				return 0;
 			}
 			
-			logger.debug("{} {} -> Received {} measurements", projectName, hostname + ":" + port, measurements.size());
+			logger.debug("         📊 Received {} metric measurements from API", measurements.size());
 
 			// Process each measurement
 			for (Map<String, Object> measurement : measurements) {
@@ -349,20 +380,31 @@ public class MetricsCollector {
 				List<Map<String, Object>> dataPoints = (List<Map<String, Object>>) measurement.get("dataPoints");
 
 				if (dataPoints == null || dataPoints.isEmpty()) {
-					logger.debug("{} {} -> No data points found for metric {}", projectName, hostname + ":" + port,
-							metric);
+					logger.debug("         ⚠️  Metric {} has no data points", metric);
 					continue;
 				}
 				
-				logger.debug("{} {} -> Metric {}: {} data points", projectName, hostname + ":" + port, metric, dataPoints.size());
+				logger.debug("         📈 Processing metric {}: {} data points", metric, dataPoints.size());
 
 				// Count the data points
 				dataPointsCollected += dataPoints.size();
 
 				// Store the metrics if storage is enabled
 				if (storeMetrics && metricsStorage != null) {
+					logger.debug("         💾 Storing {} data points for {}...", dataPoints.size(), metric);
+					
+					// Validate data quality before storing
+					validateDataPoints(dataPoints, metric, hostname, port);
+					
 					int stored = metricsStorage.storeMetrics(projectName, hostname, port, null, metric, dataPoints);
 					result.addDataPointsStored(stored);
+					
+					// Enhanced logging with efficiency metrics
+					if (dataPoints.size() > 0) {
+						double efficiency = (double) stored / dataPoints.size() * 100;
+						logger.debug("         ✓ Stored {} new data points, skipped {} duplicates ({}% efficiency)", 
+								stored, dataPoints.size() - stored, String.format("%.1f", efficiency));
+					}
 				}
 
 				// If not in collect-only mode, process the measurements for the result
@@ -396,62 +438,78 @@ public class MetricsCollector {
 
 		try {
 			// Get all disk partitions
+			logger.info("         🔍 Discovering disk partitions...");
 			List<Map<String, Object>> disks = apiClient.monitoring().getProcessDisks(projectId, hostname, port);
 
 			if (disks.isEmpty()) {
-				logger.warn("No disk partitions found for process {}:{}", hostname, port);
+				logger.info("         ⚠️  No disk partitions found for this instance");
 				return 0;
 			}
+			
+			logger.info("         💽 Found {} disk partitions", disks.size());
 
 			// Process each partition
 			for (Map<String, Object> disk : disks) {
 				String partitionName = (String) disk.get("partitionName");
 
 				try {
+					// Determine optimal time range for this partition based on stored data
+					Instant startTime = null;
+					Instant endTime = Instant.now();
 
-					// If we're storing metrics, find the latest timestamp we have for this
-					// partition
+					// If we're storing metrics, find the latest timestamp we have for this partition
 					if (storeMetrics && metricsStorage != null) {
-						// Find the oldest last timestamp across all metrics for this partition
-						Instant oldestLastTimestamp = null;
+						// Get the most recent timestamp we have for ANY metric on this partition
+						Instant partitionLastTimestamp = null;
 
 						for (String metric : diskMetrics) {
 							// Get last timestamp for this specific host/partition/metric combination
-							Instant metricLastTimestamp = metricsStorage.getLatestDataTime(projectName, processId,
-									metric);
+							Instant metricLastTimestamp = metricsStorage.getLatestTimestampForHostPartitionMetric(
+									processId, partitionName, metric);
 
 							if (metricLastTimestamp != null && !metricLastTimestamp.equals(Instant.EPOCH)) {
-								if (oldestLastTimestamp == null || metricLastTimestamp.isBefore(oldestLastTimestamp)) {
-									oldestLastTimestamp = metricLastTimestamp;
+								if (partitionLastTimestamp == null || metricLastTimestamp.isAfter(partitionLastTimestamp)) {
+									partitionLastTimestamp = metricLastTimestamp;
 								}
 							}
 						}
 
-						// Only adjust period if we found a valid last timestamp
-						if (oldestLastTimestamp != null) {
-							// Add a small overlap to ensure we don't miss any data (10 minutes)
-							Instant adjustedStartTime = oldestLastTimestamp.minus(10, ChronoUnit.MINUTES);
-
-							// Calculate days between adjusted start time and now
-							long daysToFetch = ChronoUnit.DAYS.between(adjustedStartTime, Instant.now());
-
-							logger.info("Process {}:{} partition {} - Last disk data from {}", hostname, port,
-									partitionName, oldestLastTimestamp);
-
+						if (partitionLastTimestamp != null && !partitionLastTimestamp.equals(Instant.EPOCH)) {
+							// Start from 5 minutes before the latest timestamp to ensure no gaps  
+							startTime = partitionLastTimestamp.minus(5, ChronoUnit.MINUTES);
+							logger.info("         🕒 Using optimized time range for partition '{}': {} to {} (5min overlap from last known: {})", 
+									partitionName, startTime, endTime, partitionLastTimestamp);
+						} else {
+							// No previous data, use the full period
+							startTime = endTime.minus(Duration.parse(period));
+							logger.info("         🕒 No previous data found for partition '{}', using full period: {} to {}", 
+									partitionName, startTime, endTime);
 						}
+					} else {
+						// Not storing metrics, use the full period
+						startTime = endTime.minus(Duration.parse(period));
+						logger.info("         🕒 Using full period for partition '{}': {} to {}", partitionName, startTime, endTime);
 					}
 
-					// Get measurements for this disk partition using time range
-					logger.info("Fetching disk metrics for {}:{} partition {}", hostname, port, partitionName);
-
-					List<Map<String, Object>> measurements = apiClient.monitoring().getDiskMeasurementsWithTimeRange(projectId,
-							hostname, port, partitionName, diskMetrics, granularity, period);
-
-					if (measurements == null || measurements.isEmpty()) {
-						logger.warn("{} {}:{} partition {} -> No disk measurements found", projectName, hostname, port,
-								partitionName);
+					// Skip if the time range is invalid (start time is in the future)
+					if (startTime.isAfter(endTime)) {
+						logger.info("         ✅ All data is up to date for partition '{}' (start time {} is after end time {})", 
+								partitionName, startTime, endTime);
 						continue;
 					}
+
+					// Get measurements for this disk partition using optimized time range
+					logger.info("         📡 Fetching disk metrics for partition '{}'...", partitionName);
+
+					List<Map<String, Object>> measurements = apiClient.monitoring().getDiskMeasurementsWithExplicitTimeRange(
+							projectId, hostname, port, partitionName, diskMetrics, granularity, startTime, endTime);
+
+					if (measurements == null || measurements.isEmpty()) {
+						logger.info("         ⚠️  No disk measurements found for partition '{}'", partitionName);
+						continue;
+					}
+
+					logger.info("         📊 Received {} disk measurements for partition '{}'", measurements.size(), partitionName);
 
 					// Process each measurement
 					for (Map<String, Object> measurement : measurements) {
@@ -460,19 +518,22 @@ public class MetricsCollector {
 								.get("dataPoints");
 
 						if (dataPoints == null || dataPoints.isEmpty()) {
-							logger.warn("{} {}:{} partition {} -> No data points found for metric {}", projectName,
-									hostname, port, partitionName, metric);
+							logger.debug("         ⚠️  Metric {} has no data points for partition '{}'", metric, partitionName);
 							continue;
 						}
+
+						logger.info("         📈 Processing disk metric {}: {} data points", metric, dataPoints.size());
 
 						// Count the data points
 						dataPointsCollected += dataPoints.size();
 
 						// Store the metrics if storage is enabled
 						if (storeMetrics && metricsStorage != null) {
+							logger.info("         💾 Storing {} data points for {} (partition {})...", dataPoints.size(), metric, partitionName);
 							int stored = metricsStorage.storeMetrics(projectName, hostname, port, partitionName, metric,
 									dataPoints);
 							result.addDataPointsStored(stored);
+							logger.info("         ✓ Stored {} new data points (skipped {} duplicates)", stored, dataPoints.size() - stored);
 						}
 
 						// If not in collect-only mode, process the measurements for the result
@@ -513,6 +574,51 @@ public class MetricsCollector {
 			// Since we don't have the original ProjectMetricsResult class,
 			// this method is incomplete. In a real implementation, you'd
 			// update the appropriate project result object.
+		}
+	}
+
+	/**
+	 * Validate data points for quality and detect potential gaps
+	 */
+	private void validateDataPoints(List<Map<String, Object>> dataPoints, String metric, String hostname, int port) {
+		if (dataPoints == null || dataPoints.isEmpty()) {
+			return;
+		}
+		
+		try {
+			// Sort data points by timestamp to detect gaps
+			List<Instant> timestamps = dataPoints.stream()
+				.map(dp -> Instant.parse((String) dp.get("timestamp")))
+				.sorted()
+				.collect(Collectors.toList());
+			
+			Instant first = timestamps.get(0);
+			Instant last = timestamps.get(timestamps.size() - 1);
+			
+			// Log the time span being processed
+			logger.debug("         📊 Data span for {}: {} to {} ({} points)", 
+					metric, first, last, dataPoints.size());
+			
+			// Check for large gaps (more than 10 minutes between consecutive points for 1-minute granularity)
+			if (granularity.equals("PT1M") && timestamps.size() > 1) {
+				for (int i = 1; i < timestamps.size(); i++) {
+					long gapMinutes = ChronoUnit.MINUTES.between(timestamps.get(i-1), timestamps.get(i));
+					if (gapMinutes > 10) {
+						logger.warn("         ⚠️  Large gap detected in {} data for {}:{}: {} minutes between {} and {}", 
+								metric, hostname, port, gapMinutes, timestamps.get(i-1), timestamps.get(i));
+					}
+				}
+			}
+			
+			// Check for data outside expected time range
+			Instant now = Instant.now();
+			if (last.isAfter(now.plus(5, ChronoUnit.MINUTES))) {
+				logger.warn("         ⚠️  Future timestamp detected in {} data for {}:{}: {}", 
+						metric, hostname, port, last);
+			}
+			
+		} catch (Exception e) {
+			logger.debug("Error validating data points for {} {}:{}: {}", metric, hostname, port, e.getMessage());
 		}
 	}
 

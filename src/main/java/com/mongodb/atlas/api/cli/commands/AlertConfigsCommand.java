@@ -51,7 +51,7 @@ public class AlertConfigsCommand implements Callable<Integer> {
     @Command(name = "list", description = "List alert configurations for a project")
     static class ListCommand implements Callable<Integer> {
         
-        @Parameters(index = "0", description = "Project ID")
+        @Option(names = {"-p", "--project"}, description = "Project ID (overrides config)")
         private String projectId;
         
         @Option(names = {"--format"}, description = "Output format: TABLE, JSON", defaultValue = "TABLE")
@@ -61,10 +61,17 @@ public class AlertConfigsCommand implements Callable<Integer> {
         public Integer call() throws Exception {
             try {
                 AtlasTestConfig config = AtlasCliMain.GlobalConfig.getAtlasConfig();
+                String effectiveProjectId = projectId != null ? projectId : config.getTestProjectId();
+                
+                if (effectiveProjectId == null) {
+                    System.err.println("❌ Error: Project ID is required. Use --project or set testProjectId in config.");
+                    return 1;
+                }
+
                 AtlasApiBase apiBase = new AtlasApiBase(config.getApiPublicKey(), config.getApiPrivateKey());
                 AtlasAlertConfigurationsClient configClient = new AtlasAlertConfigurationsClient(apiBase);
 
-                List<Map<String, Object>> configs = configClient.getAlertConfigurations(projectId);
+                List<Map<String, Object>> configs = configClient.getAlertConfigurations(effectiveProjectId);
 
                 if ("JSON".equalsIgnoreCase(format)) {
                     ObjectMapper mapper = new ObjectMapper();

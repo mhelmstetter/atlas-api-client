@@ -123,21 +123,31 @@ public class AlertsCommand implements Callable<Integer> {
                 // Get projects to process
                 List<String> projectsToProcess = new ArrayList<>();
                 
+                if (debug) {
+                    System.err.println("DEBUG: projectId parameter: " + projectId);
+                    System.err.println("DEBUG: GlobalConfig.getProjectIds(): " + AtlasCliMain.GlobalConfig.getProjectIds());
+                    System.err.println("DEBUG: GlobalConfig.getIncludeProjectNames(): " + AtlasCliMain.GlobalConfig.getIncludeProjectNames());
+                }
+                
                 if (projectId != null) {
                     // Use specified project ID
                     projectsToProcess.add(projectId);
+                    if (debug) System.err.println("DEBUG: Using single project ID: " + projectId);
                 } else if (AtlasCliMain.GlobalConfig.getProjectIds() != null && !AtlasCliMain.GlobalConfig.getProjectIds().isEmpty()) {
                     // Use project IDs from command line
                     projectsToProcess.addAll(AtlasCliMain.GlobalConfig.getProjectIds());
+                    if (debug) System.err.println("DEBUG: Using project IDs from GlobalConfig: " + projectsToProcess);
                 } else if (AtlasCliMain.GlobalConfig.getIncludeProjectNames() != null && !AtlasCliMain.GlobalConfig.getIncludeProjectNames().isEmpty()) {
                     // Use project names - need to resolve to IDs
                     AtlasProjectsClient projectsClient = new AtlasProjectsClient(apiBase);
                     List<Map<String, Object>> projects = projectsClient.getAllProjects();
                     
+                    if (debug) System.err.println("DEBUG: Resolving project names to IDs...");
                     for (Map<String, Object> project : projects) {
                         String projectName = (String) project.get("name");
                         if (AtlasCliMain.GlobalConfig.getIncludeProjectNames().contains(projectName)) {
                             projectsToProcess.add((String) project.get("id"));
+                            if (debug) System.err.println("DEBUG: Added project: " + projectName + " -> " + project.get("id"));
                         }
                     }
                     
@@ -162,9 +172,19 @@ public class AlertsCommand implements Callable<Integer> {
                 AtlasAlertsClient alertsClient = new AtlasAlertsClient(apiBase);
                 List<Map<String, Object>> allAlerts = new ArrayList<>();
                 
+                if (debug) {
+                    System.err.println("DEBUG: Processing alerts for " + projectsToProcess.size() + " projects:");
+                    for (String pid : projectsToProcess) {
+                        System.err.println("DEBUG: - " + pid + " (" + projectIdToName.get(pid) + ")");
+                    }
+                }
+                
                 for (String pid : projectsToProcess) {
                     try {
                         List<Map<String, Object>> projectAlerts = alertsClient.getProjectAlerts(pid, status);
+                        if (debug) {
+                            System.err.println("DEBUG: Got " + projectAlerts.size() + " alerts from project " + pid + " (" + projectIdToName.get(pid) + ")");
+                        }
                         // Add project context to each alert
                         for (Map<String, Object> alert : projectAlerts) {
                             alert.put("_projectId", pid);
