@@ -80,19 +80,16 @@ public class AtlasClustersClient {
             // Get all processes for the project
             List<Map<String, Object>> allProcesses = getProcesses(projectId);
 
-            /* The userAlias field starts with the name of the cluster */
+            /* The userAlias field starts with the name of the cluster
+            * But there could clusters whose name is a prefix of others
+            * e.g. if there are [ac2s, ac2s_ftm, ac2s_wtf] then 'ac2s' matches
+            * all three which is not what we want */
             List<Map<String, Object>> clusterProcesses = allProcesses.stream().
-                    filter(p -> p.containsKey("userAlias") &&
-                            p.get("userAlias").toString().startsWith(clusterName))
+                    filter(p -> p.containsKey("userAlias") && p.containsKey("hostname") &&
+                            p.get("userAlias").toString().startsWith(clusterName) &&
+                            dropCommonSuffix((String)p.get("userAlias"), (String)p.get("hostname")).equals(clusterName)
+                    )
                     .toList();
-
-            // Filter processes that belong to the specified cluster
-//            List<Map<String, Object>> clusterProcesses = allProcesses.stream()
-//                    .filter(process -> {
-//                        String processClusterName = (String) process.get("clusterName");
-//                        return clusterName.equals(processClusterName);
-//                    })
-//                    .collect(Collectors.toList());
             
             logger.info("Found {} processes in project {}", 
             		clusterProcesses.size(), projectId);
@@ -106,6 +103,45 @@ public class AtlasClustersClient {
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to retrieve processes for cluster '" + clusterName + "'", e);
         }
+    }
+
+    /**
+     * Reverse string and return the outcome
+     * @param s original string
+     * @return Reversed string
+     */
+    private static String reverseString(String s) {
+        return new StringBuilder(s).reverse().toString();
+    }
+
+    /**
+     * Drop any common suffix between s1 and s2 and return s1 (minus the suffix)
+     * If the prefix ends with '-' drop that..
+     * e.g. dropCommonSuffix('abc-BLAHBLAH', 'many-words-BLAHBLAH') would return 'abc'
+     * @param s1 String to return
+     * @param s2 String compare (to get common suffix)
+     * @return s1 without suffix
+     */
+    private static String dropCommonSuffix(String s1, String s2) {
+        String s1r = reverseString(s1);
+        String s2r = reverseString(s2);
+        boolean same = true;
+        int idx = 0;
+        int lastDash = -1;
+
+        while (same && idx < s1r.length() && idx < s2r.length()) {
+            same = s1r.charAt(idx) == s2r.charAt(idx);
+            if (same) {
+                idx++;
+                if (s1r.charAt(idx) == '-') {
+                    lastDash = idx;
+                }
+            }
+        }
+        if (s1r.charAt(idx) != '-') {
+            idx = lastDash + 1;
+        }
+        return reverseString(s1r.substring(idx));
     }
     
     /**
