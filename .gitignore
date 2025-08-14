@@ -10,7 +10,6 @@ charts/
 homebrew*/
 atlas-client.properties
 atlas-test.properties
-bin/
 mongo-launcher*/
 *.rb
 *.tar.gz
@@ -18,3 +17,4 @@ index.html
 *.py
 /open_api_spec_2025-03-12.json
 .idea/
+bin/original-AtlasClient.jar
