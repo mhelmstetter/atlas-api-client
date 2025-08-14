@@ -27,7 +27,7 @@
     </logger>
     
     <!-- Atlas API loggers - only show warnings/errors on console by default -->
-    <logger name="com.mongodb.atlas" level="WARN"/>
+    <logger name="com.mongodb.atlas" level="INFO"/>
     
     <!-- MongoDB driver loggers - reduce noise -->
     <logger name="org.mongodb.driver" level="WARN"/>
