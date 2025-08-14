@@ -38,6 +38,15 @@ public class ProjectSelectionUtils {
                 return null;
             }
 
+            // Auto-select if only one project
+            if (projects.size() == 1) {
+                String selectedId = (String) projects.get(0).get("id");
+                String selectedName = (String) projects.get(0).get("name");
+                System.out.println("✅ Auto-selected project: " + selectedName + " (" + selectedId + ")");
+                System.out.println();
+                return selectedId;
+            }
+
             System.out.println("Available projects:");
             for (int i = 0; i < projects.size(); i++) {
                 String name = (String) projects.get(i).get("name");

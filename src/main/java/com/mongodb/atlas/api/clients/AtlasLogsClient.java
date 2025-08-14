@@ -52,15 +52,25 @@ public class AtlasLogsClient {
     }
     
     /**
-     * Get available log types for a process
+     * Get available log types for a process - Atlas API doesn't provide this endpoint
+     * Instead, we return standard log types based on process type
      */
     public List<Map<String, Object>> getLogTypes(String projectId, String hostname, int port) {
-        // Use v2 API endpoint as confirmed by Atlas CLI
-        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + hostname + "/logs";
+        logger.info("Determining available log types for hostname: {} (port: {})", hostname, port);
         
-        logger.info("Fetching available log types for hostname: {} (port: {})", hostname, port);
-        String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
-        return apiBase.extractResults(responseBody);
+        // Atlas API doesn't have a "list log types" endpoint, so we determine
+        // available log types based on the port (27017 = mongod, 27016 = mongos)
+        List<Map<String, Object>> logTypes = new ArrayList<>();
+        
+        if (port == 27017) {
+            // mongod process - supports mongodb.gz
+            logTypes.add(Map.of("name", "mongodb.gz", "type", "database"));
+        } else if (port == 27016) {
+            // mongos process - supports mongos.gz  
+            logTypes.add(Map.of("name", "mongos.gz", "type", "router"));
+        }
+        
+        return logTypes;
     }
     
     /**
@@ -73,6 +83,18 @@ public class AtlasLogsClient {
         List<Map<String, Object>> processes = client.clusters().getProcessesForCluster(projectId, clusterName);
         
         return processes.stream()
+            .filter(process -> {
+                String processId = (String) process.get("id");
+                String typeName = (String) process.get("typeName");
+                
+                // Skip processes that don't provide user logs (config servers, arbiters)
+                if (shouldSkipProcess(typeName, processId)) {
+                    logger.info("Skipping log types check for process {} (type: {}) - this process type doesn't provide user logs", 
+                               processId, typeName);
+                    return false;
+                }
+                return true;
+            })
             .collect(Collectors.toMap(
                 process -> (String) process.get("id"),
                 process -> {
@@ -97,7 +119,7 @@ public class AtlasLogsClient {
     public byte[] getCompressedLogsForHost(String projectId, String hostname, int port, 
                                          String logName, Instant startDate, Instant endDate) {
         
-        // Build URL using only hostname (not hostname:port) as per Atlas API specification
+        // Build URL using hostname as per Atlas API specification  
         String baseUrl = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/clusters/" + hostname + "/logs/" + logName;
         
         // Build query parameters conditionally like Python code
@@ -232,9 +254,12 @@ public class AtlasLogsClient {
         }
         
         logger.info("Found {} processes in cluster: {}", processes.size(), clusterName);
+        System.out.println("🔄 Processing " + processes.size() + " processes...");
         
+        int processCount = 0;
         // For each process, download only the appropriate log types
         for (Map<String, Object> process : processes) {
+            processCount++;
             String processId = (String) process.get("id");
             String[] hostPort = processId.split(":");
             String hostname = hostPort[0]; // Use hostname WITHOUT port
@@ -247,9 +272,10 @@ public class AtlasLogsClient {
                        processId, typeName, hostname);
             
             // Skip process types that don't have user logs
-            if (shouldSkipProcess(typeName)) {
+            if (shouldSkipProcess(typeName, processId)) {
                 logger.info("Skipping process {} (type: {}) - this process type doesn't provide user logs", 
                            processId, typeName);
+                System.out.println("⏭️  [" + processCount + "/" + processes.size() + "] Skipping " + processId + " (config server)");
                 continue;
             }
             
@@ -267,14 +293,17 @@ public class AtlasLogsClient {
             // Download only the applicable log types
             for (AtlasLogType logType : applicableLogTypes) {
                 try {
+                    System.out.println("📥 [" + processCount + "/" + processes.size() + "] " + hostname + " → " + logType.getFileName());
                     logger.info("Downloading {} for process {} ({})", logType.getFileName(), hostname, typeName);
                     
                     Path downloadedFile = downloadCompressedLogFileForHost(
                         projectId, hostname, port, logType, startDate, endDate, outputDirectory);
                     downloadedFiles.add(downloadedFile);
+                    System.out.println("✅ Downloaded: " + downloadedFile.getFileName());
                     logger.info("Successfully downloaded {} for process {} ({})", 
                                logType.getFileName(), hostname, typeName);
                 } catch (Exception e) {
+                    System.out.println("❌ Failed: " + hostname + " → " + logType.getFileName() + " (" + e.getMessage() + ")");
                     logger.warn("Failed to download {} for process {} ({}): {} - continuing with next log type", 
                                logType.getFileName(), hostname, typeName, e.getMessage());
                     // Continue with other log types/processes
@@ -291,21 +320,30 @@ public class AtlasLogsClient {
     /**
      * Determine if a process should be skipped entirely
      */
-    private boolean shouldSkipProcess(String processTypeName) {
-        if (processTypeName == null) {
-            return false; // Don't skip if we don't know the type
+    private boolean shouldSkipProcess(String processTypeName, String processId) {
+        // Check process type name first
+        if (processTypeName != null) {
+            String typeUpper = processTypeName.toUpperCase();
+            
+            // Skip config servers - they don't provide user application logs
+            if (typeUpper.contains("CONFIG")) {
+                return true;
+            }
+            
+            // Skip arbiters - they don't store data or provide logs
+            if (typeUpper.equals("ARBITER")) {
+                return true;
+            }
         }
         
-        String typeUpper = processTypeName.toUpperCase();
-        
-        // Skip config servers - they don't provide user application logs
-        if (typeUpper.contains("CONFIG")) {
-            return true;
-        }
-        
-        // Skip arbiters - they don't store data or provide logs
-        if (typeUpper.equals("ARBITER")) {
-            return true;
+        // Fallback: check process ID/hostname for config server patterns
+        if (processId != null) {
+            String processIdUpper = processId.toUpperCase();
+            
+            // Skip config servers based on hostname pattern
+            if (processIdUpper.contains("-CONFIG-")) {
+                return true;
+            }
         }
         
         return false;

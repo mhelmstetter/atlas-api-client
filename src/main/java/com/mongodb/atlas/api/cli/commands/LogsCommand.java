@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 @Command(
     name = "logs",
     description = "Access Atlas database and audit logs",
+    mixinStandardHelpOptions = true,
     subcommands = {
         LogsCommand.DownloadCommand.class,
         LogsCommand.ListCommand.class,
@@ -55,10 +56,10 @@ public class LogsCommand implements Callable<Integer> {
     }
 
 
-    @Command(name = "download", description = "Download database logs from Atlas clusters")
+    @Command(name = "download", description = "Download database logs from Atlas clusters", mixinStandardHelpOptions = true)
     static class DownloadCommand implements Callable<Integer> {
         
-        @Parameters(index = "0", description = "Cluster name (optional in interactive mode)", arity = "0..1")
+        @Option(names = {"-c", "--cluster"}, description = "Cluster name (optional in interactive mode)")
         private String clusterName;
 
         @Option(names = {"-p", "--project"}, description = "Project ID (overrides config)")
@@ -67,10 +68,10 @@ public class LogsCommand implements Callable<Integer> {
         @Option(names = {"-o", "--output"}, description = "Output directory for log files", defaultValue = "./logs")
         private String outputDirectory;
 
-        @Option(names = {"-s", "--start"}, description = "Start date/time (ISO format: 2024-01-15T10:00:00Z or 2024-01-15)")
+        @Option(names = {"-s", "--start"}, description = "Start date/time (ISO format: 2024-01-15T10:00:00Z, 2024-01-15T10:00:00, or 2024-01-15)")
         private String startDate;
 
-        @Option(names = {"-e", "--end"}, description = "End date/time (ISO format: 2024-01-15T10:00:00Z or 2024-01-15)")
+        @Option(names = {"-e", "--end"}, description = "End date/time (ISO format: 2024-01-15T10:00:00Z, 2024-01-15T10:00:00, or 2024-01-15)")
         private String endDate;
 
         @Option(names = {"-t", "--type"}, description = "Log types to download: mongodb,mongos,mongodb-audit,mongos-audit (comma-separated)", split = ",")
@@ -318,9 +319,14 @@ public class LogsCommand implements Callable<Integer> {
             }
 
             try {
-                // Try ISO instant format first
-                if (dateStr.endsWith("Z") || dateStr.contains("T")) {
+                // Try ISO instant format with Z timezone first
+                if (dateStr.endsWith("Z")) {
                     return Instant.parse(dateStr);
+                }
+                
+                // Try ISO datetime format without timezone (assume UTC)
+                if (dateStr.contains("T") && !dateStr.endsWith("Z")) {
+                    return LocalDateTime.parse(dateStr).toInstant(ZoneOffset.UTC);
                 }
                 
                 // Try date-only format (YYYY-MM-DD)
@@ -331,7 +337,7 @@ public class LogsCommand implements Callable<Integer> {
                 throw new DateTimeParseException("Unable to parse date", dateStr, 0);
             } catch (DateTimeParseException e) {
                 throw new IllegalArgumentException("Invalid date format: " + dateStr + 
-                    ". Use ISO format like '2024-01-15T10:00:00Z' or '2024-01-15'");
+                    ". Use ISO format like '2024-01-15T10:00:00Z', '2024-01-15T10:00:00', or '2024-01-15'");
             }
         }
 
@@ -592,10 +598,10 @@ public class LogsCommand implements Callable<Integer> {
         }
     }
 
-    @Command(name = "list", description = "List available log types for a cluster")
+    @Command(name = "list", description = "List available log types for a cluster", mixinStandardHelpOptions = true)
     static class ListCommand implements Callable<Integer> {
         
-        @Parameters(index = "0", description = "Cluster name (optional in interactive mode)", arity = "0..1")
+        @Option(names = {"-c", "--cluster"}, description = "Cluster name (optional in interactive mode)")
         private String clusterName;
 
         @Option(names = {"-p", "--project"}, description = "Project ID (overrides config)")
@@ -640,21 +646,24 @@ public class LogsCommand implements Callable<Integer> {
                     return 0;
                 }
 
-                for (Map.Entry<String, List<Map<String, Object>>> entry : logTypes.entrySet()) {
-                    String processId = entry.getKey();
-                    List<Map<String, Object>> logs = entry.getValue();
+                // Sort processes for consistent output
+                logTypes.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> {
+                        String processId = entry.getKey();
+                        List<Map<String, Object>> logs = entry.getValue();
 
-                    System.out.println("🔧 Process: " + processId);
-                    if (logs.isEmpty()) {
-                        System.out.println("   ⚠️  No logs available");
-                    } else {
-                        for (Map<String, Object> log : logs) {
-                            String logName = (String) log.get("logName");
-                            System.out.println("   📄 " + logName);
+                        System.out.println("🔧 Process: " + processId);
+                        if (logs.isEmpty()) {
+                            System.out.println("   ⚠️  No logs available");
+                        } else {
+                            for (Map<String, Object> log : logs) {
+                                String logName = (String) log.get("name");
+                                System.out.println("   📄 " + logName);
+                            }
                         }
-                    }
-                    System.out.println();
-                }
+                        System.out.println();
+                    });
 
                 System.out.println("💡 Available log type shortcuts:");
                 System.out.println("   mongodb        -> mongodb.gz");
@@ -701,26 +710,34 @@ public class LogsCommand implements Callable<Integer> {
                             return 1;
                         }
 
-                        for (int i = 0; i < clusters.size(); i++) {
-                            String name = (String) clusters.get(i).get("name");
-                            String state = (String) clusters.get(i).get("stateName");
-                            System.out.printf("  %d. %s (%s)%n", i + 1, name, state);
-                        }
+                        // Auto-select if only one cluster
+                        if (clusters.size() == 1) {
+                            String clusterName = (String) clusters.get(0).get("name");
+                            String state = (String) clusters.get(0).get("stateName");
+                            System.out.println("✅ Auto-selected cluster: " + clusterName + " (" + state + ")");
+                            selectedCluster = clusterName;
+                        } else {
+                            for (int i = 0; i < clusters.size(); i++) {
+                                String name = (String) clusters.get(i).get("name");
+                                String state = (String) clusters.get(i).get("stateName");
+                                System.out.printf("  %d. %s (%s)%n", i + 1, name, state);
+                            }
 
-                        System.out.print("\nSelect cluster [1-" + clusters.size() + "]: ");
-                        String choice = scanner.nextLine().trim();
-                        
-                        try {
-                            int index = Integer.parseInt(choice) - 1;
-                            if (index >= 0 && index < clusters.size()) {
-                                selectedCluster = (String) clusters.get(index).get("name");
-                            } else {
-                                System.err.println("❌ Invalid selection");
+                            System.out.print("\nSelect cluster [1-" + clusters.size() + "]: ");
+                            String choice = scanner.nextLine().trim();
+                            
+                            try {
+                                int index = Integer.parseInt(choice) - 1;
+                                if (index >= 0 && index < clusters.size()) {
+                                    selectedCluster = (String) clusters.get(index).get("name");
+                                } else {
+                                    System.err.println("❌ Invalid selection");
+                                    return 1;
+                                }
+                            } catch (NumberFormatException e) {
+                                System.err.println("❌ Invalid number format");
                                 return 1;
                             }
-                        } catch (NumberFormatException e) {
-                            System.err.println("❌ Invalid number format");
-                            return 1;
                         }
                     } catch (Exception e) {
                         System.err.println("❌ Error fetching clusters: " + e.getMessage());
@@ -741,21 +758,24 @@ public class LogsCommand implements Callable<Integer> {
                     return 0;
                 }
 
-                for (Map.Entry<String, List<Map<String, Object>>> entry : logTypes.entrySet()) {
-                    String processId = entry.getKey();
-                    List<Map<String, Object>> logs = entry.getValue();
+                // Sort processes for consistent output
+                logTypes.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> {
+                        String processId = entry.getKey();
+                        List<Map<String, Object>> logs = entry.getValue();
 
-                    System.out.println("🔧 Process: " + processId);
-                    if (logs.isEmpty()) {
-                        System.out.println("   ⚠️  No logs available");
-                    } else {
-                        for (Map<String, Object> log : logs) {
-                            String logName = (String) log.get("logName");
-                            System.out.println("   📄 " + logName);
+                        System.out.println("🔧 Process: " + processId);
+                        if (logs.isEmpty()) {
+                            System.out.println("   ⚠️  No logs available");
+                        } else {
+                            for (Map<String, Object> log : logs) {
+                                String logName = (String) log.get("name");
+                                System.out.println("   📄 " + logName);
+                            }
                         }
-                    }
-                    System.out.println();
-                }
+                        System.out.println();
+                    });
 
                 System.out.println("💡 Available log type shortcuts:");
                 System.out.println("   mongodb        -> mongodb.gz");
@@ -775,9 +795,9 @@ public class LogsCommand implements Callable<Integer> {
         }
     }
 
-    @Command(name = "access-logs", description = "View database access logs (authentication attempts)")
+    @Command(name = "access-logs", description = "View database access logs (authentication attempts)", mixinStandardHelpOptions = true)
     static class AccessLogsCommand implements Callable<Integer> {
-        @Parameters(index = "0", description = "Cluster name (optional in interactive mode)", arity = "0..1")
+        @Option(names = {"-c", "--cluster"}, description = "Cluster name (optional in interactive mode)")
         private String clusterName;
 
         @Option(names = {"-p", "--project"}, description = "Project ID (overrides config)")
@@ -879,26 +899,34 @@ public class LogsCommand implements Callable<Integer> {
                             return 1;
                         }
 
-                        for (int i = 0; i < clusters.size(); i++) {
-                            String name = (String) clusters.get(i).get("name");
-                            String state = (String) clusters.get(i).get("stateName");
-                            System.out.printf("  %d. %s (%s)%n", i + 1, name, state);
-                        }
+                        // Auto-select if only one cluster
+                        if (clusters.size() == 1) {
+                            String clusterName = (String) clusters.get(0).get("name");
+                            String state = (String) clusters.get(0).get("stateName");
+                            System.out.println("✅ Auto-selected cluster: " + clusterName + " (" + state + ")");
+                            selectedCluster = clusterName;
+                        } else {
+                            for (int i = 0; i < clusters.size(); i++) {
+                                String name = (String) clusters.get(i).get("name");
+                                String state = (String) clusters.get(i).get("stateName");
+                                System.out.printf("  %d. %s (%s)%n", i + 1, name, state);
+                            }
 
-                        System.out.print("\nSelect cluster [1-" + clusters.size() + "]: ");
-                        String choice = scanner.nextLine().trim();
-                        
-                        try {
-                            int index = Integer.parseInt(choice) - 1;
-                            if (index >= 0 && index < clusters.size()) {
-                                selectedCluster = (String) clusters.get(index).get("name");
-                            } else {
-                                System.err.println("❌ Invalid selection");
+                            System.out.print("\nSelect cluster [1-" + clusters.size() + "]: ");
+                            String choice = scanner.nextLine().trim();
+                            
+                            try {
+                                int index = Integer.parseInt(choice) - 1;
+                                if (index >= 0 && index < clusters.size()) {
+                                    selectedCluster = (String) clusters.get(index).get("name");
+                                } else {
+                                    System.err.println("❌ Invalid selection");
+                                    return 1;
+                                }
+                            } catch (NumberFormatException e) {
+                                System.err.println("❌ Invalid number format");
                                 return 1;
                             }
-                        } catch (NumberFormatException e) {
-                            System.err.println("❌ Invalid number format");
-                            return 1;
                         }
                     } catch (Exception e) {
                         System.err.println("❌ Error fetching clusters: " + e.getMessage());
