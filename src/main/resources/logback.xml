@@ -69,8 +69,13 @@
     <!-- Show MetricsReporter logs for data availability reports -->
     <logger name="com.mongodb.atlas.api.metrics.MetricsReporter" level="INFO"/>
     
-    <!-- Root logger -->
+    <!-- Root logger - set to WARN for console to suppress all INFO messages -->
     <root level="INFO">
-        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="CONSOLE">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>WARN</level>
+            </filter>
+        </appender-ref>
+        <appender-ref ref="REQUEST_FILE" />
     </root>
 </configuration>
