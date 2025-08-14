@@ -36,6 +36,26 @@
         </appender-ref>
     </logger>
     
+    <!-- Catch all variations of Atlas loggers (including shortened package names) -->
+    <logger name="c.m.atlas" level="INFO" additivity="false">
+        <appender-ref ref="REQUEST_FILE" />
+        <appender-ref ref="CONSOLE">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>WARN</level>
+            </filter>
+        </appender-ref>
+    </logger>
+    
+    <!-- Catch additional variations -->
+    <logger name="c.m.a" level="INFO" additivity="false">
+        <appender-ref ref="REQUEST_FILE" />
+        <appender-ref ref="CONSOLE">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>WARN</level>
+            </filter>
+        </appender-ref>
+    </logger>
+    
     <!-- MongoDB driver loggers - reduce noise -->
     <logger name="org.mongodb.driver" level="WARN"/>
     <logger name="com.mongodb" level="WARN"/>
