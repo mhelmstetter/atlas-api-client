@@ -254,9 +254,10 @@ public class AtlasLogsClient {
         }
         
         logger.info("Found {} processes in cluster: {}", processes.size(), clusterName);
-        System.out.println("🔄 Processing " + processes.size() + " processes...");
+        System.out.println("🔄 Processing " + processes.size() + " processes in cluster: " + clusterName);
         
         int processCount = 0;
+        int failedCount = 0;
         // For each process, download only the appropriate log types
         for (Map<String, Object> process : processes) {
             processCount++;
@@ -303,6 +304,7 @@ public class AtlasLogsClient {
                     logger.info("Successfully downloaded {} for process {} ({})", 
                                logType.getFileName(), hostname, typeName);
                 } catch (Exception e) {
+                    failedCount++;
                     System.out.println("❌ Failed: " + hostname + " → " + logType.getFileName() + " (" + e.getMessage() + ")");
                     logger.warn("Failed to download {} for process {} ({}): {} - continuing with next log type", 
                                logType.getFileName(), hostname, typeName, e.getMessage());
@@ -313,6 +315,17 @@ public class AtlasLogsClient {
         
         logger.info("Completed download for cluster: {}. Downloaded {} files total.", 
                    clusterName, downloadedFiles.size());
+        
+        // Print summary
+        System.out.println();
+        System.out.println("═".repeat(50));
+        System.out.println("📊 Download Summary:");
+        System.out.println("   ✅ Successfully downloaded: " + downloadedFiles.size() + " files");
+        if (failedCount > 0) {
+            System.out.println("   ❌ Failed downloads: " + failedCount);
+        }
+        System.out.println("   📁 Output directory: " + outputDirectory);
+        System.out.println("═".repeat(50));
         
         return downloadedFiles;
     }

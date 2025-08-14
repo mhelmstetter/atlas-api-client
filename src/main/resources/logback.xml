@@ -26,8 +26,15 @@
         <appender-ref ref="REQUEST_FILE" />
     </logger>
     
-    <!-- Atlas API loggers - only show warnings/errors on console by default -->
-    <logger name="com.mongodb.atlas" level="INFO"/>
+    <!-- Atlas API loggers - log everything to file, only warnings/errors to console -->
+    <logger name="com.mongodb.atlas" level="INFO" additivity="false">
+        <appender-ref ref="REQUEST_FILE" />
+        <appender-ref ref="CONSOLE">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>WARN</level>
+            </filter>
+        </appender-ref>
+    </logger>
     
     <!-- MongoDB driver loggers - reduce noise -->
     <logger name="org.mongodb.driver" level="WARN"/>
