@@ -70,8 +70,8 @@ public class AtlasLogsUtility implements Callable<Integer> {
 
 	    // If no project name or cluster name provided, just show info
 	    if (projectNames == null || clusterName == null) {
-	        logger.info("Atlas API client initialized. Provide project name and cluster name to download logs.");
-	        logger.info("Usage: java -jar atlas-logs-utility.jar <projectName> <clusterName> [options]");
+	        logger.debug("Atlas API client initialized. Provide project name and cluster name to download logs.");
+	        logger.debug("Usage: java -jar atlas-logs-utility.jar <projectName> <clusterName> [options]");
 	        return 0;
 	    }
 
@@ -85,26 +85,32 @@ public class AtlasLogsUtility implements Callable<Integer> {
 	            if (startTime != null && endTime != null) {
 	                startTimeInstant = Instant.parse(startTime);
 	                endTimeInstant = Instant.parse(endTime);
-	                logger.info("Using explicit time range: {} to {}", startTimeInstant, endTimeInstant);
+	                logger.debug("Using explicit time range: {} to {}", startTimeInstant, endTimeInstant);
+	                System.out.println("📅 Time range: " + startTimeInstant + " to " + endTimeInstant);
 	            } else {
 	                endTimeInstant = Instant.now();
 	                startTimeInstant = endTimeInstant.minus(days, ChronoUnit.DAYS);
-	                logger.info("Using relative time range: last {} days ({} to {})", days, startTimeInstant,
+	                logger.debug("Using relative time range: last {} days ({} to {})", days, startTimeInstant,
 	                        endTimeInstant);
+	                System.out.println("📅 Time range: last " + days + " days");
 	            }
 
 	            // UPDATED: Use enum-based log type determination
 	            List<String> targetLogTypeFileNames;
 	            if (includeAudit) {
 	                targetLogTypeFileNames = AtlasLogType.getAllLogTypeFileNames();
-	                logger.info("Including audit logs: {}", targetLogTypeFileNames);
+	                logger.debug("Including audit logs: {}", targetLogTypeFileNames);
+	                System.out.println("📊 Log types: " + targetLogTypeFileNames + " (including audit)");
 	            } else {
 	                targetLogTypeFileNames = AtlasLogType.getDefaultLogTypeFileNames();
-	                logger.info("Using default log types (no audit): {}", targetLogTypeFileNames);
+	                logger.debug("Using default log types (no audit): {}", targetLogTypeFileNames);
+	                System.out.println("📊 Log types: " + targetLogTypeFileNames);
 	            }
 
-	            logger.info("Downloading log types: {}", targetLogTypeFileNames);
-	            logger.info("Output directory: {}", outputDirectory);
+	            logger.debug("Downloading log types: {}", targetLogTypeFileNames);
+	            logger.debug("Output directory: {}", outputDirectory);
+	            System.out.println("📁 Output directory: " + outputDirectory);
+	            System.out.println();
 
 	            // Get project ID
 	            String projectId = getProjectId(projectName);
@@ -113,12 +119,17 @@ public class AtlasLogsUtility implements Callable<Integer> {
 	            List<Path> downloadedFiles = apiClient.logs().downloadCompressedLogFilesForCluster(projectId,
 	                    clusterName, startTimeInstant, endTimeInstant, outputDirectory, targetLogTypeFileNames);
 
-	            logger.info("Successfully downloaded {} log files:", downloadedFiles.size());
-	            for (Path file : downloadedFiles) {
-	                logger.info("  - {}", file.toString());
+	            logger.debug("Successfully downloaded {} log files:", downloadedFiles.size());
+	            if (!downloadedFiles.isEmpty()) {
+	                System.out.println("\n✅ Successfully downloaded " + downloadedFiles.size() + " log files:");
+	                for (Path file : downloadedFiles) {
+	                    System.out.println("   📄 " + file.toString());
+	                    logger.debug("  - {}", file.toString());
+	                }
 	            }
 
 	            if (downloadedFiles.isEmpty()) {
+	                System.out.println("⚠️  No log files were downloaded. Check cluster name and time range.");
 	                logger.warn("No log files were downloaded. Check cluster name and time range.");
 	            }
 
@@ -160,17 +171,17 @@ public class AtlasLogsUtility implements Callable<Integer> {
 			}
 
 			if (defaultsFile.exists()) {
-				logger.info("Loading configuration from {}", defaultsFile.getAbsolutePath());
+				logger.debug("Loading configuration from {}", defaultsFile.getAbsolutePath());
 				cmd.setDefaultValueProvider(new PropertiesDefaultProvider(defaultsFile));
 			} else {
-				logger.warn("Configuration file {} not found", defaultsFile.getAbsolutePath());
+				logger.debug("Configuration file {} not found", defaultsFile.getAbsolutePath());
 			}
 			parseResult = cmd.parseArgs(args);
 
 			if (!CommandLine.printHelpIfRequested(parseResult)) {
-				logger.info("Starting MongoDB Atlas client");
+				logger.debug("Starting MongoDB Atlas client");
 				exitCode = cmd.execute(args);
-				logger.info("MongoDB Atlas client completed with exit code {}", exitCode);
+				logger.debug("MongoDB Atlas client completed with exit code {}", exitCode);
 			}
 		} catch (ParameterException ex) {
 			logger.error("Parameter error: {}", ex.getMessage());
