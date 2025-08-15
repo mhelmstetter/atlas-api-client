@@ -152,8 +152,8 @@ public class AtlasLogsClient {
         // If neither date is provided, use API defaults (no query params)
         
         String finalUrl = url.toString();
-        logger.info("Fetching compressed log data from URL: {}", finalUrl);
-        logger.info("Log details - Host: {}, Port: {}, Log: {}, Start: {}, End: {}", 
+        logger.debug("Fetching compressed log data from URL: {}", finalUrl);
+        logger.debug("Log details - Host: {}, Port: {}, Log: {}, Start: {}, End: {}", 
                 hostname, port, logName, startDate, endDate);
         
         try {
@@ -165,7 +165,7 @@ public class AtlasLogsClient {
                     "Cannot read the array length because \"compressedData\" is null");
             }
             
-            logger.info("Retrieved {} bytes of compressed log data for {}:{} log {}", 
+            logger.debug("Retrieved {} bytes of compressed log data for {}:{} log {}", 
                        compressedData.length, hostname, port, logName);
             return compressedData;
         } catch (Exception e) {
@@ -269,7 +269,7 @@ public class AtlasLogsClient {
             // Get process type for filtering
             String typeName = (String) process.get("typeName");
             
-            logger.info("Processing logs for process: {} (type: {}) - using hostname: {}", 
+            logger.debug("Processing logs for process: {} (type: {}) - using hostname: {}", 
                        processId, typeName, hostname);
             
             // Skip process types that don't have user logs
@@ -288,24 +288,27 @@ public class AtlasLogsClient {
                 continue;
             }
             
-            logger.info("Applicable log types for {} ({}): {}", 
+            logger.debug("Applicable log types for {} ({}): {}", 
                        processId, typeName, AtlasLogType.toFileNames(applicableLogTypes));
             
             // Download only the applicable log types
             for (AtlasLogType logType : applicableLogTypes) {
                 try {
-                    System.out.println("📥 [" + processCount + "/" + processes.size() + "] " + hostname + " → " + logType.getFileName());
-                    logger.info("Downloading {} for process {} ({})", logType.getFileName(), hostname, typeName);
+                    logger.debug("Downloading {} for process {} ({})", logType.getFileName(), hostname, typeName);
                     
                     Path downloadedFile = downloadCompressedLogFileForHost(
-                        projectId, hostname, port, logType, startDate, endDate, outputDirectory);
+                        projectId, clusterName, hostname, port, logType, startDate, endDate, outputDirectory);
                     downloadedFiles.add(downloadedFile);
-                    System.out.println("✅ Downloaded: " + downloadedFile.getFileName());
-                    logger.info("Successfully downloaded {} for process {} ({})", 
+                    
+                    // Show concise success message: [count] short-hostname → logtype ✅ 
+                    String shortHostname = hostname.split("\\.")[0]; // Just the first part before the dot
+                    System.out.println("📥 [" + processCount + "/" + processes.size() + "] " + shortHostname + " → " + logType.getFileName() + " ✅");
+                    logger.debug("Successfully downloaded {} for process {} ({})", 
                                logType.getFileName(), hostname, typeName);
                 } catch (Exception e) {
                     failedCount++;
-                    System.out.println("❌ Failed: " + hostname + " → " + logType.getFileName() + " (" + e.getMessage() + ")");
+                    String shortHostname = hostname.split("\\.")[0]; // Just the first part before the dot
+                    System.out.println("❌ [" + processCount + "/" + processes.size() + "] " + shortHostname + " → " + logType.getFileName() + " (" + e.getMessage() + ")");
                     logger.warn("Failed to download {} for process {} ({}): {} - continuing with next log type", 
                                logType.getFileName(), hostname, typeName, e.getMessage());
                     // Continue with other log types/processes
@@ -399,7 +402,7 @@ public class AtlasLogsClient {
     /**
      * Download and save compressed log file with correct filename generation using enum metadata
      */
-    public Path downloadCompressedLogFileForHost(String projectId, String hostname, int port, 
+    public Path downloadCompressedLogFileForHost(String projectId, String clusterName, String hostname, int port, 
                                         AtlasLogType logType, Instant startDate, Instant endDate, 
                                         String outputDirectory) throws IOException {
         
@@ -410,14 +413,19 @@ public class AtlasLogsClient {
         Path outputDir = Paths.get(outputDirectory);
         Files.createDirectories(outputDir);
         
-        // Generate filename with CORRECT port based on log type, not process port
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        // Generate filename using standard Atlas naming convention
+        // Format: {hostname}_{startDate}_{endDate}_{LOGTYPE}.log.gz
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH_mm_ss");
         
-        String filename = String.format("%s_%d_%s_%s.gz", 
-                                       hostname, 
-                                       logType.getStandardPort(),  // ALWAYS correct: 27017 for mongodb, 27016 for mongos
-                                       logType.getCleanName(),     // Clean log type name
-                                       timestamp);
+        String startDateStr = startDate != null ? startDate.atZone(java.time.ZoneOffset.UTC).format(dateFormatter) : "unknown";
+        String endDateStr = endDate != null ? endDate.atZone(java.time.ZoneOffset.UTC).format(dateFormatter) : "unknown";
+        String logTypeUpper = logType.getCleanName().toUpperCase(); // MONGODB or MONGOS
+        
+        String filename = String.format("%s_%s_%s_%s.log.gz", 
+                                       hostname,
+                                       startDateStr,
+                                       endDateStr,
+                                       logTypeUpper);
         
         Path outputFile = outputDir.resolve(filename);
         
@@ -426,7 +434,7 @@ public class AtlasLogsClient {
             fos.write(compressedData);
         }
         
-        logger.info("Downloaded compressed log file for {}:{} {} to: {} ({} bytes)", 
+        logger.debug("Downloaded compressed log file for {}:{} {} to: {} ({} bytes)", 
                    hostname, port, logType.getFileName(), outputFile, compressedData.length);
         return outputFile;
     }
@@ -439,7 +447,7 @@ public class AtlasLogsClient {
                                         String outputDirectory) throws IOException {
         
         AtlasLogType logType = AtlasLogType.fromFileName(logName);
-        return downloadCompressedLogFileForHost(projectId, hostname, port, logType, startDate, endDate, outputDirectory);
+        return downloadCompressedLogFileForHost(projectId, "unknown-cluster", hostname, port, logType, startDate, endDate, outputDirectory);
     }
     
     /**

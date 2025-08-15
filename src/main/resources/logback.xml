@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<configuration>
+<configuration debug="false">
     <!-- Console appender for general logs -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -26,35 +26,10 @@
         <appender-ref ref="REQUEST_FILE" />
     </logger>
     
-    <!-- Atlas API loggers - log everything to file, only warnings/errors to console -->
-    <logger name="com.mongodb.atlas" level="INFO" additivity="false">
-        <appender-ref ref="REQUEST_FILE" />
-        <appender-ref ref="CONSOLE">
-            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-                <level>WARN</level>
-            </filter>
-        </appender-ref>
-    </logger>
-    
-    <!-- Catch all variations of Atlas loggers (including shortened package names) -->
-    <logger name="c.m.atlas" level="INFO" additivity="false">
-        <appender-ref ref="REQUEST_FILE" />
-        <appender-ref ref="CONSOLE">
-            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-                <level>WARN</level>
-            </filter>
-        </appender-ref>
-    </logger>
-    
-    <!-- Catch additional variations -->
-    <logger name="c.m.a" level="INFO" additivity="false">
-        <appender-ref ref="REQUEST_FILE" />
-        <appender-ref ref="CONSOLE">
-            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-                <level>WARN</level>
-            </filter>
-        </appender-ref>
-    </logger>
+    <!-- All Atlas API loggers to WARN level -->
+    <logger name="com.mongodb.atlas" level="WARN" />
+    <logger name="c.m.atlas" level="WARN" />
+    <logger name="c.m.a" level="WARN" />
     
     <!-- MongoDB driver loggers - reduce noise -->
     <logger name="org.mongodb.driver" level="WARN"/>
@@ -69,13 +44,9 @@
     <!-- Show MetricsReporter logs for data availability reports -->
     <logger name="com.mongodb.atlas.api.metrics.MetricsReporter" level="INFO"/>
     
-    <!-- Root logger - set to WARN for console to suppress all INFO messages -->
-    <root level="INFO">
-        <appender-ref ref="CONSOLE">
-            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-                <level>WARN</level>
-            </filter>
-        </appender-ref>
+    <!-- Root logger - set to WARN level -->
+    <root level="WARN">
+        <appender-ref ref="CONSOLE" />
         <appender-ref ref="REQUEST_FILE" />
     </root>
 </configuration>

@@ -381,8 +381,8 @@ public class AtlasApiBase {
         trackRequest(projectId, url);
         
         try {
-            logger.info("BINARY REQUEST: Making request to URL: {}", url);
-            logger.info("BINARY REQUEST: Using Accept header: {}", acceptHeader);
+            logger.debug("BINARY REQUEST: Making request to URL: {}", url);
+            logger.debug("BINARY REQUEST: Using Accept header: {}", acceptHeader);
             
             long startTime = System.currentTimeMillis();
             byte[] response = restClient.method(HttpMethod.GET)

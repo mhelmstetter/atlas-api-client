@@ -120,13 +120,7 @@ public class AtlasLogsUtility implements Callable<Integer> {
 	                    clusterName, startTimeInstant, endTimeInstant, outputDirectory, targetLogTypeFileNames);
 
 	            logger.debug("Successfully downloaded {} log files:", downloadedFiles.size());
-	            if (!downloadedFiles.isEmpty()) {
-	                System.out.println("\n✅ Successfully downloaded " + downloadedFiles.size() + " log files:");
-	                for (Path file : downloadedFiles) {
-	                    System.out.println("   📄 " + file.toString());
-	                    logger.debug("  - {}", file.toString());
-	                }
-	            }
+	            // Note: File listing removed - summary is handled by AtlasLogsClient
 
 	            if (downloadedFiles.isEmpty()) {
 	                System.out.println("⚠️  No log files were downloaded. Check cluster name and time range.");
