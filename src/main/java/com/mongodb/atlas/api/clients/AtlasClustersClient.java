@@ -58,12 +58,54 @@ public class AtlasClustersClient {
     }
     
     /**
-     * Get all processes for a project
+     * Get all processes for a project with pagination support
      */
     public List<Map<String, Object>> getProcesses(String projectId) {
-        String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/processes";
-        String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
-        return apiBase.extractResults(responseBody);
+        List<Map<String, Object>> allProcesses = new ArrayList<>();
+        int pageNum = 1;
+        boolean hasMorePages = true;
+        
+        logger.debug("Fetching all processes for project {} with pagination", projectId);
+        
+        while (hasMorePages) {
+            String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/processes"
+                    + "?pageNum=" + pageNum + "&itemsPerPage=500";
+            
+            try {
+                String responseBody = apiBase.getResponseBody(url, AtlasApiBase.API_VERSION_V2, projectId);
+                Map<String, Object> responseMap = apiBase.parseResponse(responseBody, Map.class);
+                
+                List<Map<String, Object>> pageProcesses = 
+                    (List<Map<String, Object>>) responseMap.get("results");
+                
+                if (pageProcesses != null && !pageProcesses.isEmpty()) {
+                    allProcesses.addAll(pageProcesses);
+                    
+                    // Check pagination - use totalCount and current page size
+                    Object totalCount = responseMap.get("totalCount");
+                    if (totalCount instanceof Integer) {
+                        int total = (Integer) totalCount;
+                        hasMorePages = allProcesses.size() < total;
+                    } else {
+                        // Fallback: if we got a full page, assume there might be more
+                        hasMorePages = pageProcesses.size() >= 500;
+                    }
+                    
+                    logger.debug("Page {}: {} processes (total so far: {})", 
+                            pageNum, pageProcesses.size(), allProcesses.size());
+                    pageNum++;
+                } else {
+                    hasMorePages = false;
+                }
+            } catch (Exception e) {
+                logger.error("Failed to fetch processes page {} for project {}: {}", 
+                        pageNum, projectId, e.getMessage());
+                throw e;
+            }
+        }
+        
+        logger.info("Retrieved {} total processes for project {}", allProcesses.size(), projectId);
+        return allProcesses;
     }
 
     /**
