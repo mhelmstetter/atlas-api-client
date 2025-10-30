@@ -65,37 +65,55 @@ public class AtlasNetworkAccessClient {
 
     /**
      * Add an IP address to the access list
-     * 
+     *
      * @param projectId The Atlas project ID
      * @param ipAddress The IP address to allow
      * @param comment Optional comment describing the entry
      * @return Map containing creation response
      */
     public Map<String, Object> addIpAddress(String projectId, String ipAddress, String comment) {
+        return addIpAddress(projectId, ipAddress, comment, null);
+    }
+
+    /**
+     * Add an IP address to the access list with optional expiration
+     *
+     * @param projectId The Atlas project ID
+     * @param ipAddress The IP address to allow
+     * @param comment Optional comment describing the entry
+     * @param deleteAfterDate Optional ISO 8601 date when entry should be deleted (e.g., "2024-12-31T23:59:59Z")
+     * @return Map containing creation response
+     */
+    public Map<String, Object> addIpAddress(String projectId, String ipAddress, String comment, String deleteAfterDate) {
         logger.info("Adding IP address '{}' to access list for project {}", ipAddress, projectId);
-        
+
         try {
             Map<String, Object> accessListEntry = new HashMap<>();
             accessListEntry.put("ipAddress", ipAddress);
             if (comment != null && !comment.trim().isEmpty()) {
                 accessListEntry.put("comment", comment);
             }
-            
+            if (deleteAfterDate != null && !deleteAfterDate.trim().isEmpty()) {
+                accessListEntry.put("deleteAfterDate", deleteAfterDate);
+                logger.info("IP address will be automatically deleted after: {}", deleteAfterDate);
+            }
+
             String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/accessList";
             String requestBody = objectMapper.writeValueAsString(List.of(accessListEntry));
-            
-            logger.debug("IP access list creation payload: {}", requestBody);
-            
-            String responseBody = apiBase.makeApiRequest(url, HttpMethod.POST, requestBody, 
+
+            logger.info("Adding IP address: {} to project: {}", ipAddress, projectId);
+            logger.info("IP access list creation payload: {}", requestBody);
+
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.POST, requestBody,
                                                        AtlasApiBase.API_VERSION_V2, projectId);
-            
+
             Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
             logger.info("IP address '{}' added to access list successfully", ipAddress);
-            
+
             return response;
-            
+
         } catch (Exception e) {
-            logger.error("Failed to add IP address '{}' to access list for project {}: {}", 
+            logger.error("Failed to add IP address '{}' to access list for project {}: {}",
                         ipAddress, projectId, e.getMessage());
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to add IP address '" + ipAddress + "' to access list", e);
@@ -104,35 +122,52 @@ public class AtlasNetworkAccessClient {
 
     /**
      * Add a CIDR block to the access list
-     * 
+     *
      * @param projectId The Atlas project ID
      * @param cidrBlock The CIDR block to allow (e.g., "192.168.1.0/24")
      * @param comment Optional comment describing the entry
      * @return Map containing creation response
      */
     public Map<String, Object> addCidrBlock(String projectId, String cidrBlock, String comment) {
+        return addCidrBlock(projectId, cidrBlock, comment, null);
+    }
+
+    /**
+     * Add a CIDR block to the access list with optional expiration
+     *
+     * @param projectId The Atlas project ID
+     * @param cidrBlock The CIDR block to allow (e.g., "192.168.1.0/24")
+     * @param comment Optional comment describing the entry
+     * @param deleteAfterDate Optional ISO 8601 date when entry should be deleted (e.g., "2024-12-31T23:59:59Z")
+     * @return Map containing creation response
+     */
+    public Map<String, Object> addCidrBlock(String projectId, String cidrBlock, String comment, String deleteAfterDate) {
         logger.info("Adding CIDR block '{}' to access list for project {}", cidrBlock, projectId);
-        
+
         try {
             Map<String, Object> accessListEntry = new HashMap<>();
             accessListEntry.put("cidrBlock", cidrBlock);
             if (comment != null && !comment.trim().isEmpty()) {
                 accessListEntry.put("comment", comment);
             }
-            
+            if (deleteAfterDate != null && !deleteAfterDate.trim().isEmpty()) {
+                accessListEntry.put("deleteAfterDate", deleteAfterDate);
+                logger.info("CIDR block will be automatically deleted after: {}", deleteAfterDate);
+            }
+
             String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/accessList";
             String requestBody = objectMapper.writeValueAsString(List.of(accessListEntry));
-            
-            String responseBody = apiBase.makeApiRequest(url, HttpMethod.POST, requestBody, 
+
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.POST, requestBody,
                                                        AtlasApiBase.API_VERSION_V2, projectId);
-            
+
             Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
             logger.info("CIDR block '{}' added to access list successfully", cidrBlock);
-            
+
             return response;
-            
+
         } catch (Exception e) {
-            logger.error("Failed to add CIDR block '{}' to access list for project {}: {}", 
+            logger.error("Failed to add CIDR block '{}' to access list for project {}: {}",
                         cidrBlock, projectId, e.getMessage());
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to add CIDR block '" + cidrBlock + "' to access list", e);
@@ -160,20 +195,29 @@ public class AtlasNetworkAccessClient {
      */
     public Map<String, Object> deleteIpAccessListEntry(String projectId, String entryValue) {
         logger.info("Deleting IP access list entry '{}' from project {}", entryValue, projectId);
-        
+
         try {
             String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/accessList/" + entryValue;
-            
-            String responseBody = apiBase.makeApiRequest(url, HttpMethod.DELETE, null, 
+
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.DELETE, null,
                                                        AtlasApiBase.API_VERSION_V2, projectId);
-            
+
+            // DELETE may return empty response
+            if (responseBody == null || responseBody.trim().isEmpty()) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("status", "deleted");
+                response.put("entryValue", entryValue);
+                logger.info("IP access list entry '{}' deleted successfully", entryValue);
+                return response;
+            }
+
             Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
             logger.info("IP access list entry '{}' deleted successfully", entryValue);
-            
+
             return response;
-            
+
         } catch (Exception e) {
-            logger.error("Failed to delete IP access list entry '{}' from project {}: {}", 
+            logger.error("Failed to delete IP access list entry '{}' from project {}: {}",
                         entryValue, projectId, e.getMessage());
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to delete IP access list entry '" + entryValue + "'", e);
@@ -190,24 +234,34 @@ public class AtlasNetworkAccessClient {
      */
     public Map<String, Object> updateIpAccessListEntry(String projectId, String entryValue, String newComment) {
         logger.info("Updating IP access list entry '{}' in project {}", entryValue, projectId);
-        
+
         try {
             Map<String, Object> updateSpec = new HashMap<>();
             updateSpec.put("comment", newComment);
-            
+
             String url = AtlasApiBase.BASE_URL_V2 + "/groups/" + projectId + "/accessList/" + entryValue;
             String requestBody = objectMapper.writeValueAsString(List.of(updateSpec));
-            
-            String responseBody = apiBase.makeApiRequest(url, HttpMethod.PATCH, requestBody, 
+
+            String responseBody = apiBase.makeApiRequest(url, HttpMethod.PATCH, requestBody,
                                                        AtlasApiBase.API_VERSION_V2, projectId);
-            
+
+            // PATCH may return empty response
+            if (responseBody == null || responseBody.trim().isEmpty()) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("status", "updated");
+                response.put("entryValue", entryValue);
+                response.put("comment", newComment);
+                logger.info("IP access list entry '{}' updated successfully", entryValue);
+                return response;
+            }
+
             Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
             logger.info("IP access list entry '{}' updated successfully", entryValue);
-            
+
             return response;
-            
+
         } catch (Exception e) {
-            logger.error("Failed to update IP access list entry '{}' in project {}: {}", 
+            logger.error("Failed to update IP access list entry '{}' in project {}: {}",
                         entryValue, projectId, e.getMessage());
             throw new AtlasApiBase.AtlasApiException(
                     "Failed to update IP access list entry '" + entryValue + "'", e);

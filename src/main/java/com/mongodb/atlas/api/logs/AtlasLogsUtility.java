@@ -68,11 +68,22 @@ public class AtlasLogsUtility implements Callable<Integer> {
 	public Integer call() throws Exception {
 	    this.apiClient = new AtlasApiClient(apiPublicKey, apiPrivateKey, debugLevel);
 
-	    // If no project name or cluster name provided, just show info
+	    // If no project name or cluster name provided, show error
 	    if (projectNames == null || clusterName == null) {
-	        logger.debug("Atlas API client initialized. Provide project name and cluster name to download logs.");
-	        logger.debug("Usage: java -jar atlas-logs-utility.jar <projectName> <clusterName> [options]");
-	        return 0;
+	        String errorMsg = "ERROR: Required parameters missing.";
+	        if (projectNames == null && clusterName == null) {
+	            errorMsg += " Both --projectNames and --clusterName must be provided.";
+	        } else if (projectNames == null) {
+	            errorMsg += " --projectNames must be provided.";
+	        } else {
+	            errorMsg += " --clusterName must be provided.";
+	        }
+	        System.err.println(errorMsg);
+	        System.err.println();
+	        System.err.println("Usage: java -jar atlas-logs-utility.jar --projectNames <projectName> --clusterName <clusterName> [options]");
+	        System.err.println("Example: java -jar atlas-logs-utility.jar --projectNames myProject --clusterName myCluster --days 7");
+	        logger.error(errorMsg);
+	        return 1;
 	    }
 
 	    try {

@@ -42,6 +42,7 @@ public class MetricsCollector {
 	private int totalDataPointsCollected = 0;
 	private int totalDataPointsStored = 0;
 	private final Map<String, Integer> projectDataPoints = new HashMap<>();
+	private final Map<String, Exception> projectErrors = new HashMap<>();
 
 	/**
 	 * Creates a collector that doesn't store metrics
@@ -212,6 +213,8 @@ public class MetricsCollector {
 
 			} catch (Exception e) {
 				logger.error("Error collecting metrics for project {}: {}", projectName, e.getMessage(), e);
+				// Track the error for this project
+				projectErrors.put(projectName, e);
 			}
 		}
 
@@ -697,5 +700,31 @@ public class MetricsCollector {
 		public void addDataPointsStored(int points) {
 			this.dataPointsStored += points;
 		}
+	}
+
+	/**
+	 * Check if there were any errors during collection for a specific project
+	 * @param projectName The project name to check
+	 * @return true if there were API errors during collection for this project
+	 */
+	public boolean hasCollectionErrors(String projectName) {
+		return projectErrors.containsKey(projectName);
+	}
+
+	/**
+	 * Get the error that occurred during collection for a specific project
+	 * @param projectName The project name to check
+	 * @return The exception that occurred, or null if no error
+	 */
+	public Exception getCollectionError(String projectName) {
+		return projectErrors.get(projectName);
+	}
+
+	/**
+	 * Check if there were any collection errors across all projects
+	 * @return true if there were any API errors during collection
+	 */
+	public boolean hasAnyCollectionErrors() {
+		return !projectErrors.isEmpty();
 	}
 }

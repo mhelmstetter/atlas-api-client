@@ -2,10 +2,13 @@ package com.mongodb.atlas.api.cli;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.Callable;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.mongodb.atlas.api.cli.commands.AlertConfigsCommand;
 import com.mongodb.atlas.api.cli.commands.AlertsCommand;
@@ -24,6 +27,7 @@ import com.mongodb.atlas.api.cli.commands.NetworkAccessCommand;
 import com.mongodb.atlas.api.cli.commands.ProjectsCommand;
 import com.mongodb.atlas.api.clients.AtlasApiBase;
 import com.mongodb.atlas.api.clients.AtlasClustersClient;
+import com.mongodb.atlas.api.clients.AtlasNetworkAccessClient;
 import com.mongodb.atlas.api.clients.AtlasProjectsClient;
 import com.mongodb.atlas.api.config.AtlasTestConfig;
 
@@ -435,9 +439,13 @@ public class AtlasCliMain implements Callable<Integer> {
             System.out.println("\nSelection Options:");
             System.out.println("  a. Select All Projects");
             System.out.println("  c. Clear Selection");
+            System.out.println("  s. Save Current Selection as Group");
+            System.out.println("  l. Load Saved Group");
+            System.out.println("  v. View Saved Groups");
+            System.out.println("  d. Delete Saved Group");
             System.out.println("  0. Back to Main Menu");
             System.out.print("\nEnter project numbers (comma-separated), option letter, or 0: ");
-            
+
             String input = scanner.nextLine().trim();
             
             if ("0".equals(input)) {
@@ -458,6 +466,20 @@ public class AtlasCliMain implements Callable<Integer> {
                 GlobalConfig.setProjectIds(null);
                 GlobalConfig.setIncludeProjectNames(null);
                 System.out.println("✅ Project selection cleared.");
+            } else if ("s".equalsIgnoreCase(input)) {
+                // Save current selection as group
+                saveProjectGroup(scanner);
+            } else if ("l".equalsIgnoreCase(input)) {
+                // Load saved group
+                loadProjectGroup(scanner, projects);
+            } else if ("v".equalsIgnoreCase(input)) {
+                // View saved groups
+                viewProjectGroups();
+                System.out.print("\nPress Enter to continue...");
+                scanner.nextLine();
+            } else if ("d".equalsIgnoreCase(input)) {
+                // Delete saved group
+                deleteProjectGroup(scanner);
             } else {
                 // Parse comma-separated numbers
                 String[] indices = input.split(",");
@@ -494,16 +516,520 @@ public class AtlasCliMain implements Callable<Integer> {
             }
         }
     }
-    
+
+    private void saveProjectGroup(Scanner scanner) {
+        List<String> currentProjectIds = GlobalConfig.getProjectIds();
+        List<String> currentProjectNames = GlobalConfig.getIncludeProjectNames();
+
+        if (currentProjectIds == null || currentProjectIds.isEmpty()) {
+            System.out.println("❌ No projects currently selected. Please select projects first.");
+            return;
+        }
+
+        System.out.print("Enter a name for this project group: ");
+        String groupName = scanner.nextLine().trim();
+
+        if (groupName.isEmpty()) {
+            System.out.println("❌ Group name cannot be empty.");
+            return;
+        }
+
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/groups");
+            groupsDir.mkdirs();
+
+            java.io.File groupFile = new java.io.File(groupsDir, groupName + ".json");
+
+            Map<String, Object> groupData = new HashMap<>();
+            groupData.put("name", groupName);
+            groupData.put("projectIds", currentProjectIds);
+            groupData.put("projectNames", currentProjectNames);
+            groupData.put("createdAt", java.time.Instant.now().toString());
+
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.writerWithDefaultPrettyPrinter().writeValue(groupFile, groupData);
+
+            System.out.println("✅ Project group '" + groupName + "' saved successfully.");
+            System.out.println("   Projects: " + String.join(", ", currentProjectNames != null ? currentProjectNames : currentProjectIds));
+        } catch (Exception e) {
+            System.err.println("❌ Error saving project group: " + e.getMessage());
+        }
+    }
+
+    private void loadProjectGroup(Scanner scanner, List<Map<String, Object>> availableProjects) {
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/groups");
+            if (!groupsDir.exists() || groupsDir.listFiles() == null || groupsDir.listFiles().length == 0) {
+                System.out.println("❌ No saved project groups found.");
+                return;
+            }
+
+            java.io.File[] groupFiles = groupsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (groupFiles == null || groupFiles.length == 0) {
+                System.out.println("❌ No saved project groups found.");
+                return;
+            }
+
+            System.out.println("\n📂 Saved Project Groups:");
+            for (int i = 0; i < groupFiles.length; i++) {
+                String groupName = groupFiles[i].getName().replace(".json", "");
+                System.out.printf("  %d. %s\n", i + 1, groupName);
+            }
+
+            System.out.print("\nSelect group number (or 0 to cancel): ");
+            String input = scanner.nextLine().trim();
+
+            if ("0".equals(input)) {
+                return;
+            }
+
+            try {
+                int index = Integer.parseInt(input) - 1;
+                if (index >= 0 && index < groupFiles.length) {
+                    ObjectMapper mapper = new ObjectMapper();
+                    Map<String, Object> groupData = mapper.readValue(groupFiles[index], Map.class);
+
+                    List<String> projectIds = (List<String>) groupData.get("projectIds");
+                    List<String> projectNames = (List<String>) groupData.get("projectNames");
+
+                    GlobalConfig.setProjectIds(projectIds);
+                    GlobalConfig.setIncludeProjectNames(projectNames);
+
+                    System.out.println("✅ Loaded project group: " + groupData.get("name"));
+                    System.out.println("   Projects: " + String.join(", ", projectNames != null ? projectNames : projectIds));
+                } else {
+                    System.out.println("❌ Invalid group number.");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("❌ Invalid input.");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error loading project group: " + e.getMessage());
+        }
+    }
+
+    private void viewProjectGroups() {
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/groups");
+            if (!groupsDir.exists() || groupsDir.listFiles() == null || groupsDir.listFiles().length == 0) {
+                System.out.println("❌ No saved project groups found.");
+                return;
+            }
+
+            java.io.File[] groupFiles = groupsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (groupFiles == null || groupFiles.length == 0) {
+                System.out.println("❌ No saved project groups found.");
+                return;
+            }
+
+            System.out.println("\n📂 Saved Project Groups:");
+            System.out.println("=".repeat(60));
+
+            ObjectMapper mapper = new ObjectMapper();
+            for (java.io.File groupFile : groupFiles) {
+                try {
+                    Map<String, Object> groupData = mapper.readValue(groupFile, Map.class);
+                    String groupName = (String) groupData.get("name");
+                    List<String> projectNames = (List<String>) groupData.get("projectNames");
+                    List<String> projectIds = (List<String>) groupData.get("projectIds");
+
+                    System.out.println("\n📋 " + groupName);
+                    System.out.println("   Projects (" + projectIds.size() + "):");
+                    for (int i = 0; i < projectIds.size(); i++) {
+                        String name = projectNames != null && i < projectNames.size() ? projectNames.get(i) : projectIds.get(i);
+                        System.out.println("     • " + name);
+                    }
+                } catch (Exception e) {
+                    System.err.println("   ⚠️  Error reading group: " + groupFile.getName());
+                }
+            }
+            System.out.println("\n" + "=".repeat(60));
+        } catch (Exception e) {
+            System.err.println("❌ Error viewing project groups: " + e.getMessage());
+        }
+    }
+
+    private void deleteProjectGroup(Scanner scanner) {
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/groups");
+            if (!groupsDir.exists() || groupsDir.listFiles() == null || groupsDir.listFiles().length == 0) {
+                System.out.println("❌ No saved project groups found.");
+                return;
+            }
+
+            java.io.File[] groupFiles = groupsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (groupFiles == null || groupFiles.length == 0) {
+                System.out.println("❌ No saved project groups found.");
+                return;
+            }
+
+            System.out.println("\n📂 Saved Project Groups:");
+            for (int i = 0; i < groupFiles.length; i++) {
+                String groupName = groupFiles[i].getName().replace(".json", "");
+                System.out.printf("  %d. %s\n", i + 1, groupName);
+            }
+
+            System.out.print("\nSelect group number to delete (or 0 to cancel): ");
+            String input = scanner.nextLine().trim();
+
+            if ("0".equals(input)) {
+                return;
+            }
+
+            try {
+                int index = Integer.parseInt(input) - 1;
+                if (index >= 0 && index < groupFiles.length) {
+                    String groupName = groupFiles[index].getName().replace(".json", "");
+                    System.out.print("⚠️  Are you sure you want to delete group '" + groupName + "'? [y/N]: ");
+                    String confirm = scanner.nextLine().trim();
+
+                    if ("y".equalsIgnoreCase(confirm) || "yes".equalsIgnoreCase(confirm)) {
+                        if (groupFiles[index].delete()) {
+                            System.out.println("✅ Project group '" + groupName + "' deleted successfully.");
+                        } else {
+                            System.out.println("❌ Failed to delete project group.");
+                        }
+                    } else {
+                        System.out.println("❌ Deletion cancelled.");
+                    }
+                } else {
+                    System.out.println("❌ Invalid group number.");
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("❌ Invalid input.");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error deleting project group: " + e.getMessage());
+        }
+    }
+
+    private void manageClusterGroups(Scanner scanner) {
+        System.out.println("\n🔧 Cluster Groups Management");
+        System.out.println("=".repeat(50));
+        System.out.println("  1. Create Cluster Group");
+        System.out.println("  2. View Cluster Groups");
+        System.out.println("  3. List Clusters in Group");
+        System.out.println("  4. Delete Cluster Group");
+        System.out.println("  0. Back");
+        System.out.print("\nSelect option: ");
+
+        String choice = scanner.nextLine().trim();
+
+        switch (choice) {
+            case "1":
+                createClusterGroup(scanner);
+                break;
+            case "2":
+                viewClusterGroups();
+                System.out.print("\nPress Enter to continue...");
+                scanner.nextLine();
+                break;
+            case "3":
+                listClustersInGroup(scanner);
+                break;
+            case "4":
+                deleteClusterGroup(scanner);
+                break;
+            case "0":
+            case "back":
+                return;
+            default:
+                System.out.println("❌ Invalid option.");
+        }
+    }
+
+    private void createClusterGroup(Scanner scanner) {
+        System.out.print("\nEnter a name for this cluster group: ");
+        String groupName = scanner.nextLine().trim();
+
+        if (groupName.isEmpty()) {
+            System.out.println("❌ Group name cannot be empty.");
+            return;
+        }
+
+        System.out.print("Enter cluster filter pattern (e.g., 'prod-*', 'dev-*', or leave empty for manual selection): ");
+        String pattern = scanner.nextLine().trim();
+
+        try {
+            String publicKey = apiPublicKey != null ? apiPublicKey : System.getProperty("atlas.api.public.key");
+            String privateKey = apiPrivateKey != null ? apiPrivateKey : System.getProperty("atlas.api.private.key");
+
+            if (publicKey == null || privateKey == null) {
+                System.out.println("❌ API credentials not configured.");
+                return;
+            }
+
+            AtlasApiBase apiBase = new AtlasApiBase(publicKey, privateKey);
+            AtlasProjectsClient projectsClient = new AtlasProjectsClient(apiBase);
+            AtlasClustersClient clustersClient = new AtlasClustersClient(apiBase);
+
+            List<Map<String, Object>> projects = projectsClient.getAllProjects();
+            List<Map<String, Object>> matchingClusters = new ArrayList<>();
+
+            System.out.println("🔄 Scanning clusters across " + projects.size() + " projects...");
+
+            for (Map<String, Object> project : projects) {
+                String projectId = (String) project.get("id");
+                String projectName = (String) project.get("name");
+
+                try {
+                    List<Map<String, Object>> clusters = clustersClient.getClusters(projectId);
+
+                    for (Map<String, Object> cluster : clusters) {
+                        String clusterName = (String) cluster.get("name");
+
+                        if (pattern.isEmpty() || matchesPattern(clusterName, pattern)) {
+                            Map<String, Object> clusterInfo = new HashMap<>();
+                            clusterInfo.put("projectId", projectId);
+                            clusterInfo.put("projectName", projectName);
+                            clusterInfo.put("clusterName", clusterName);
+                            clusterInfo.put("state", cluster.get("stateName"));
+                            matchingClusters.add(clusterInfo);
+                        }
+                    }
+                } catch (Exception e) {
+                    // Skip projects where we can't fetch clusters
+                }
+            }
+
+            if (matchingClusters.isEmpty()) {
+                System.out.println("❌ No clusters found matching the pattern.");
+                return;
+            }
+
+            System.out.println("\n📋 Found " + matchingClusters.size() + " matching clusters:");
+            for (int i = 0; i < matchingClusters.size(); i++) {
+                Map<String, Object> cluster = matchingClusters.get(i);
+                System.out.printf("  %2d. %s / %s (%s)\n", i + 1,
+                    cluster.get("projectName"),
+                    cluster.get("clusterName"),
+                    cluster.get("state"));
+            }
+
+            System.out.print("\nInclude all these clusters in the group? [Y/n]: ");
+            String confirm = scanner.nextLine().trim();
+
+            if ("n".equalsIgnoreCase(confirm) || "no".equalsIgnoreCase(confirm)) {
+                System.out.println("❌ Cluster group creation cancelled.");
+                return;
+            }
+
+            // Save cluster group
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/cluster-groups");
+            groupsDir.mkdirs();
+
+            java.io.File groupFile = new java.io.File(groupsDir, groupName + ".json");
+
+            Map<String, Object> groupData = new HashMap<>();
+            groupData.put("name", groupName);
+            groupData.put("pattern", pattern);
+            groupData.put("clusters", matchingClusters);
+            groupData.put("createdAt", java.time.Instant.now().toString());
+
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.writerWithDefaultPrettyPrinter().writeValue(groupFile, groupData);
+
+            System.out.println("✅ Cluster group '" + groupName + "' created successfully with " + matchingClusters.size() + " clusters.");
+
+        } catch (Exception e) {
+            System.err.println("❌ Error creating cluster group: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private boolean matchesPattern(String clusterName, String pattern) {
+        if (pattern.isEmpty()) {
+            return true;
+        }
+
+        // Convert to lowercase for case-insensitive matching
+        String lowerClusterName = clusterName.toLowerCase();
+        String lowerPattern = pattern.toLowerCase();
+
+        // Simple wildcard matching: * at start, end, or both
+        if (lowerPattern.equals("*")) {
+            return true;
+        } else if (lowerPattern.startsWith("*") && lowerPattern.endsWith("*")) {
+            // Pattern like *prod* - contains matching
+            String middle = lowerPattern.substring(1, lowerPattern.length() - 1);
+            return lowerClusterName.contains(middle);
+        } else if (lowerPattern.endsWith("*")) {
+            // Pattern like prod-* - prefix matching
+            String prefix = lowerPattern.substring(0, lowerPattern.length() - 1);
+            return lowerClusterName.startsWith(prefix);
+        } else if (lowerPattern.startsWith("*")) {
+            // Pattern like *-prod - suffix matching
+            String suffix = lowerPattern.substring(1);
+            return lowerClusterName.endsWith(suffix);
+        } else {
+            // Exact match (case-insensitive)
+            return lowerClusterName.equals(lowerPattern);
+        }
+    }
+
+    private void viewClusterGroups() {
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/cluster-groups");
+            if (!groupsDir.exists() || groupsDir.listFiles() == null || groupsDir.listFiles().length == 0) {
+                System.out.println("❌ No saved cluster groups found.");
+                return;
+            }
+
+            java.io.File[] groupFiles = groupsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (groupFiles == null || groupFiles.length == 0) {
+                System.out.println("❌ No saved cluster groups found.");
+                return;
+            }
+
+            System.out.println("\n📂 Saved Cluster Groups:");
+            System.out.println("=".repeat(60));
+
+            ObjectMapper mapper = new ObjectMapper();
+            for (java.io.File groupFile : groupFiles) {
+                try {
+                    Map<String, Object> groupData = mapper.readValue(groupFile, Map.class);
+                    String groupName = (String) groupData.get("name");
+                    String pattern = (String) groupData.get("pattern");
+                    List<Map<String, Object>> clusters = (List<Map<String, Object>>) groupData.get("clusters");
+
+                    System.out.println("\n📋 " + groupName);
+                    if (pattern != null && !pattern.isEmpty()) {
+                        System.out.println("   Pattern: " + pattern);
+                    }
+                    System.out.println("   Clusters (" + clusters.size() + "):");
+                    for (Map<String, Object> cluster : clusters) {
+                        System.out.println("     • " + cluster.get("projectName") + " / " + cluster.get("clusterName"));
+                    }
+                } catch (Exception e) {
+                    System.err.println("   ⚠️  Error reading group: " + groupFile.getName());
+                }
+            }
+            System.out.println("\n" + "=".repeat(60));
+        } catch (Exception e) {
+            System.err.println("❌ Error viewing cluster groups: " + e.getMessage());
+        }
+    }
+
+    private void listClustersInGroup(Scanner scanner) {
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/cluster-groups");
+            if (!groupsDir.exists() || groupsDir.listFiles() == null || groupsDir.listFiles().length == 0) {
+                System.out.println("❌ No saved cluster groups found.");
+                return;
+            }
+
+            java.io.File[] groupFiles = groupsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (groupFiles == null || groupFiles.length == 0) {
+                System.out.println("❌ No saved cluster groups found.");
+                return;
+            }
+
+            System.out.println("\n📂 Saved Cluster Groups:");
+            for (int i = 0; i < groupFiles.length; i++) {
+                String groupName = groupFiles[i].getName().replace(".json", "");
+                System.out.printf("  %d. %s\n", i + 1, groupName);
+            }
+
+            System.out.print("\nSelect group number (or 0 to cancel): ");
+            String input = scanner.nextLine().trim();
+
+            if ("0".equals(input)) {
+                return;
+            }
+
+            int index = Integer.parseInt(input) - 1;
+            if (index >= 0 && index < groupFiles.length) {
+                ObjectMapper mapper = new ObjectMapper();
+                Map<String, Object> groupData = mapper.readValue(groupFiles[index], Map.class);
+                List<Map<String, Object>> clusters = (List<Map<String, Object>>) groupData.get("clusters");
+
+                System.out.println("\n📋 Clusters in group '" + groupData.get("name") + "':");
+                System.out.println("=".repeat(60));
+                System.out.printf("%-30s %-30s %-15s%n", "PROJECT", "CLUSTER", "STATE");
+                System.out.println("─".repeat(60));
+
+                for (Map<String, Object> cluster : clusters) {
+                    System.out.printf("%-30s %-30s %-15s%n",
+                        truncate((String) cluster.get("projectName"), 29),
+                        truncate((String) cluster.get("clusterName"), 29),
+                        truncate((String) cluster.get("state"), 14));
+                }
+
+                System.out.print("\nPress Enter to continue...");
+                scanner.nextLine();
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error listing clusters: " + e.getMessage());
+        }
+    }
+
+    private void deleteClusterGroup(Scanner scanner) {
+        try {
+            java.io.File groupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/cluster-groups");
+            if (!groupsDir.exists() || groupsDir.listFiles() == null || groupsDir.listFiles().length == 0) {
+                System.out.println("❌ No saved cluster groups found.");
+                return;
+            }
+
+            java.io.File[] groupFiles = groupsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (groupFiles == null || groupFiles.length == 0) {
+                System.out.println("❌ No saved cluster groups found.");
+                return;
+            }
+
+            System.out.println("\n📂 Saved Cluster Groups:");
+            for (int i = 0; i < groupFiles.length; i++) {
+                String groupName = groupFiles[i].getName().replace(".json", "");
+                System.out.printf("  %d. %s\n", i + 1, groupName);
+            }
+
+            System.out.print("\nSelect group number to delete (or 0 to cancel): ");
+            String input = scanner.nextLine().trim();
+
+            if ("0".equals(input)) {
+                return;
+            }
+
+            int index = Integer.parseInt(input) - 1;
+            if (index >= 0 && index < groupFiles.length) {
+                String groupName = groupFiles[index].getName().replace(".json", "");
+                System.out.print("⚠️  Are you sure you want to delete cluster group '" + groupName + "'? [y/N]: ");
+                String confirm = scanner.nextLine().trim();
+
+                if ("y".equalsIgnoreCase(confirm) || "yes".equalsIgnoreCase(confirm)) {
+                    if (groupFiles[index].delete()) {
+                        System.out.println("✅ Cluster group '" + groupName + "' deleted successfully.");
+                    } else {
+                        System.out.println("❌ Failed to delete cluster group.");
+                    }
+                } else {
+                    System.out.println("❌ Deletion cancelled.");
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error deleting cluster group: " + e.getMessage());
+        }
+    }
+
+    private String truncate(String str, int maxLength) {
+        if (str == null) return "";
+        return str.length() > maxLength ? str.substring(0, maxLength - 3) + "..." : str;
+    }
+
     private void runSubCommand(String command, Scanner scanner) {
         System.out.println("\n📋 " + command.toUpperCase() + " - Available Operations:");
-        
+
         switch (command) {
             case "alerts":
                 runAlertsSubCommand(scanner);
                 break;
             case "clusters":
                 runClustersSubCommand(scanner);
+                break;
+            case "network-access":
+                runNetworkAccessSubCommand(scanner);
                 break;
             case "projects":
                 runProjectsSubCommand(scanner);
@@ -698,14 +1224,15 @@ public class AtlasCliMain implements Callable<Integer> {
         System.out.println("  2. List All Clusters (All Projects)");
         System.out.println("  3. Get Cluster Details");
         System.out.println("  4. Create Cluster");
+        System.out.println("  5. Manage Cluster Groups");
         System.out.println("  0. Back");
         System.out.print("\nSelect operation: ");
-        
+
         String choice = scanner.nextLine().trim();
-        
+
         String operation = null;
         boolean needsInteraction = false;
-        
+
         switch (choice) {
             case "1":
                 operation = "list";
@@ -785,11 +1312,14 @@ public class AtlasCliMain implements Callable<Integer> {
                 }
                 operation = "create";
                 break;
+            case "5":
+                manageClusterGroups(scanner);
+                return;
             case "0":
             case "back":
                 return;
             default:
-                System.out.println("❌ Invalid option. Please select 0-4.");
+                System.out.println("❌ Invalid option. Please select 0-5.");
                 return;
         }
         
@@ -946,13 +1476,458 @@ public class AtlasCliMain implements Callable<Integer> {
             }
             
             new CommandLine(this).execute(fullArgs.toArray(new String[0]));
-            
+
             System.out.println("\n" + "=".repeat(50));
             System.out.print("Press Enter to continue...");
             scanner.nextLine();
         }
     }
-    
+
+    private void runNetworkAccessSubCommand(Scanner scanner) {
+        System.out.println("  1. List Network Access");
+        System.out.println("  2. List All Network Access (All Projects)");
+        System.out.println("  3. Get Details");
+        System.out.println("  4. Add Network Access Entry");
+        System.out.println("  0. Back");
+        System.out.print("\nSelect operation: ");
+
+        String choice = scanner.nextLine().trim();
+
+        String operation = null;
+
+        switch (choice) {
+            case "1":
+                operation = "list";
+                break;
+            case "2":
+                operation = "list-all";
+                break;
+            case "3":
+                operation = "get";
+                break;
+            case "4":
+                addNetworkAccessEntry(scanner);
+                return;
+            case "0":
+            case "back":
+                return;
+            default:
+                System.out.println("❌ Invalid option. Please select 0-4.");
+                return;
+        }
+
+        if (operation != null) {
+            System.out.println("\n" + "=".repeat(50));
+
+            // Prepare complete command with global options
+            List<String> fullArgs = new ArrayList<>();
+            if (configFile != null) {
+                fullArgs.add("--config");
+                fullArgs.add(configFile.getPath());
+            }
+            if (debug) {
+                fullArgs.add("--debug");
+            }
+            if (apiPublicKey != null && !apiPublicKey.trim().isEmpty()) {
+                fullArgs.add("--apiPublicKey");
+                fullArgs.add(apiPublicKey);
+            }
+            if (apiPrivateKey != null && !apiPrivateKey.trim().isEmpty()) {
+                fullArgs.add("--apiPrivateKey");
+                fullArgs.add(apiPrivateKey);
+            }
+
+            // For list-all, get all projects and set in GlobalConfig
+            if ("list-all".equals(operation)) {
+                try {
+                    String publicKey = apiPublicKey != null ? apiPublicKey : System.getProperty("atlas.api.public.key");
+                    String privateKey = apiPrivateKey != null ? apiPrivateKey : System.getProperty("atlas.api.private.key");
+
+                    if (publicKey != null && privateKey != null) {
+                        AtlasApiBase apiBase = new AtlasApiBase(publicKey, privateKey);
+                        AtlasProjectsClient projectsClient = new AtlasProjectsClient(apiBase);
+                        List<Map<String, Object>> projects = projectsClient.getAllProjects();
+
+                        if (!projects.isEmpty()) {
+                            List<String> allProjectIds = new ArrayList<>();
+                            List<String> allProjectNames = new ArrayList<>();
+                            for (Map<String, Object> project : projects) {
+                                allProjectIds.add((String) project.get("id"));
+                                allProjectNames.add((String) project.get("name"));
+                            }
+                            // Set in GlobalConfig so the command can see them
+                            GlobalConfig.setProjectIds(allProjectIds);
+                            GlobalConfig.setIncludeProjectNames(allProjectNames);
+
+                            fullArgs.add("--projectIds");
+                            fullArgs.add(String.join(",", allProjectIds));
+                            System.out.println("🌍 Fetching network access entries from all " + projects.size() + " projects...");
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("❌ Error fetching projects: " + e.getMessage());
+                    return;
+                }
+                operation = "list"; // Use list command with all projects
+            } else {
+                // Use GlobalConfig values (which include interactive selections) with fallback to config file values
+                List<String> currentProjectIds = GlobalConfig.getProjectIds() != null && !GlobalConfig.getProjectIds().isEmpty()
+                    ? GlobalConfig.getProjectIds() : projectIds;
+                List<String> currentProjectNames = GlobalConfig.getIncludeProjectNames() != null && !GlobalConfig.getIncludeProjectNames().isEmpty()
+                    ? GlobalConfig.getIncludeProjectNames() : includeProjectNames;
+
+                if (currentProjectIds != null && !currentProjectIds.isEmpty()) {
+                    fullArgs.add("--projectIds");
+                    fullArgs.add(String.join(",", currentProjectIds));
+                    System.out.println("🎯 Using selected projects: " + String.join(", ",
+                        (currentProjectNames != null && !currentProjectNames.isEmpty()) ? currentProjectNames : currentProjectIds));
+                } else if (currentProjectNames != null && !currentProjectNames.isEmpty()) {
+                    fullArgs.add("--includeProjectNames");
+                    fullArgs.add(String.join(",", currentProjectNames));
+                    System.out.println("🎯 Using selected projects: " + String.join(", ", currentProjectNames));
+                } else {
+                    System.out.println("⚠️  No projects selected - results may be limited");
+                }
+            }
+
+            fullArgs.add("network-access");
+            fullArgs.add(operation);
+
+            new CommandLine(this).execute(fullArgs.toArray(new String[0]));
+
+            System.out.println("\n" + "=".repeat(50));
+            System.out.print("Press Enter to continue...");
+            scanner.nextLine();
+        }
+    }
+
+    private void addNetworkAccessEntry(Scanner scanner) {
+        System.out.println("\n🌐 Add Network Access Entry");
+        System.out.println("=".repeat(50));
+
+        // Step 1: Get IP or CIDR (auto-detect)
+        System.out.print("\nEnter IP address or CIDR block (e.g., 203.0.113.5 or 192.168.1.0/24): ");
+        String ipOrCidr = scanner.nextLine().trim();
+
+        if (ipOrCidr.isEmpty()) {
+            System.out.println("❌ Entry cannot be empty.");
+            return;
+        }
+
+        // Auto-detect if it's CIDR or single IP
+        boolean isCidr = ipOrCidr.contains("/");
+        String entryType = isCidr ? "CIDR block" : "IP address";
+        System.out.println("✅ Detected: " + entryType);
+
+        System.out.print("Enter comment (optional): ");
+        String comment = scanner.nextLine().trim();
+
+        // Step 1.5: Configure expiration
+        System.out.println("\n⏰ Expiration (Auto-Delete):");
+        System.out.println("  1. No expiration (permanent)");
+        System.out.println("  2. 1 hour");
+        System.out.println("  3. 4 hours");
+        System.out.println("  4. 8 hours");
+        System.out.println("  5. 1 day");
+        System.out.println("  6. 7 days");
+        System.out.println("  7. 30 days");
+        System.out.println("  8. Custom date/time");
+        System.out.print("Select expiration [1-8]: ");
+        String expirationChoice = scanner.nextLine().trim();
+
+        String deleteAfterDate = null;
+        java.time.Instant expirationTime = null;
+
+        switch (expirationChoice) {
+            case "2":
+                expirationTime = java.time.Instant.now().plus(1, java.time.temporal.ChronoUnit.HOURS);
+                break;
+            case "3":
+                expirationTime = java.time.Instant.now().plus(4, java.time.temporal.ChronoUnit.HOURS);
+                break;
+            case "4":
+                expirationTime = java.time.Instant.now().plus(8, java.time.temporal.ChronoUnit.HOURS);
+                break;
+            case "5":
+                expirationTime = java.time.Instant.now().plus(1, java.time.temporal.ChronoUnit.DAYS);
+                break;
+            case "6":
+                expirationTime = java.time.Instant.now().plus(7, java.time.temporal.ChronoUnit.DAYS);
+                break;
+            case "7":
+                expirationTime = java.time.Instant.now().plus(30, java.time.temporal.ChronoUnit.DAYS);
+                break;
+            case "8":
+                System.out.print("Enter expiration date/time (YYYY-MM-DD HH:MM): ");
+                String customDateTime = scanner.nextLine().trim();
+                try {
+                    // Parse custom date/time
+                    java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+                    java.time.LocalDateTime localDateTime = java.time.LocalDateTime.parse(customDateTime, formatter);
+                    expirationTime = localDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant();
+                } catch (Exception e) {
+                    System.out.println("⚠️  Invalid date format, entry will not expire.");
+                }
+                break;
+            case "1":
+            default:
+                // No expiration
+                break;
+        }
+
+        if (expirationTime != null) {
+            deleteAfterDate = expirationTime.toString();
+            System.out.println("✅ Entry will expire on: " +
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+                    .withZone(java.time.ZoneId.systemDefault())
+                    .format(expirationTime));
+        }
+
+        // Step 2: Choose target projects
+        System.out.println("\n📋 Target Projects:");
+        System.out.println("  1. Current selected projects");
+        System.out.println("  2. Select specific projects");
+        System.out.println("  3. All projects");
+        System.out.println("  4. Load from project group");
+        System.out.print("Select option [1-4]: ");
+        String projectChoice = scanner.nextLine().trim();
+
+        List<String> targetProjectIds = new ArrayList<>();
+        List<String> targetProjectNames = new ArrayList<>();
+
+        try {
+            String publicKey = apiPublicKey != null ? apiPublicKey : System.getProperty("atlas.api.public.key");
+            String privateKey = apiPrivateKey != null ? apiPrivateKey : System.getProperty("atlas.api.private.key");
+
+            if (publicKey == null || privateKey == null) {
+                System.out.println("❌ API credentials not configured.");
+                return;
+            }
+
+            AtlasApiBase apiBase = new AtlasApiBase(publicKey, privateKey);
+            AtlasProjectsClient projectsClient = new AtlasProjectsClient(apiBase);
+            AtlasNetworkAccessClient networkClient = new AtlasNetworkAccessClient(apiBase);
+
+            switch (projectChoice) {
+                case "1":
+                    // Use currently selected projects
+                    List<String> currentIds = GlobalConfig.getProjectIds() != null ? GlobalConfig.getProjectIds() : projectIds;
+                    List<String> currentNames = GlobalConfig.getIncludeProjectNames() != null ? GlobalConfig.getIncludeProjectNames() : includeProjectNames;
+
+                    if (currentIds == null || currentIds.isEmpty()) {
+                        System.out.println("❌ No projects currently selected. Please select projects first.");
+                        return;
+                    }
+
+                    targetProjectIds.addAll(currentIds);
+                    if (currentNames != null) {
+                        targetProjectNames.addAll(currentNames);
+                    }
+                    break;
+
+                case "2":
+                    // Select specific projects
+                    List<Map<String, Object>> allProjects = projectsClient.getAllProjects();
+                    System.out.println("\n📋 Available Projects:");
+                    for (int i = 0; i < allProjects.size(); i++) {
+                        Map<String, Object> project = allProjects.get(i);
+                        System.out.printf("  %2d. %s\n", i + 1, project.get("name"));
+                    }
+
+                    System.out.print("\nEnter project numbers (comma-separated): ");
+                    String projectInput = scanner.nextLine().trim();
+                    String[] indices = projectInput.split(",");
+
+                    for (String indexStr : indices) {
+                        try {
+                            int index = Integer.parseInt(indexStr.trim()) - 1;
+                            if (index >= 0 && index < allProjects.size()) {
+                                Map<String, Object> project = allProjects.get(index);
+                                targetProjectIds.add((String) project.get("id"));
+                                targetProjectNames.add((String) project.get("name"));
+                            }
+                        } catch (NumberFormatException e) {
+                            System.out.println("⚠️  Skipping invalid input: " + indexStr);
+                        }
+                    }
+                    break;
+
+                case "3":
+                    // All projects
+                    List<Map<String, Object>> projects = projectsClient.getAllProjects();
+                    for (Map<String, Object> project : projects) {
+                        targetProjectIds.add((String) project.get("id"));
+                        targetProjectNames.add((String) project.get("name"));
+                    }
+                    break;
+
+                case "4":
+                    // Load from project group or cluster group
+                    java.io.File projectGroupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/groups");
+                    java.io.File clusterGroupsDir = new java.io.File(System.getProperty("user.home"), ".atlas-cli/cluster-groups");
+
+                    java.io.File[] projectGroupFiles = (projectGroupsDir.exists() && projectGroupsDir.listFiles() != null)
+                        ? projectGroupsDir.listFiles((dir, name) -> name.endsWith(".json")) : new java.io.File[0];
+                    java.io.File[] clusterGroupFiles = (clusterGroupsDir.exists() && clusterGroupsDir.listFiles() != null)
+                        ? clusterGroupsDir.listFiles((dir, name) -> name.endsWith(".json")) : new java.io.File[0];
+
+                    int totalGroups = (projectGroupFiles != null ? projectGroupFiles.length : 0) +
+                                     (clusterGroupFiles != null ? clusterGroupFiles.length : 0);
+
+                    if (totalGroups == 0) {
+                        System.out.println("❌ No saved groups found.");
+                        return;
+                    }
+
+                    System.out.println("\n📂 Saved Groups:");
+                    List<java.io.File> allGroupFiles = new ArrayList<>();
+                    List<String> groupTypes = new ArrayList<>();
+
+                    // Add project groups
+                    if (projectGroupFiles != null && projectGroupFiles.length > 0) {
+                        System.out.println("\n  Project Groups:");
+                        for (java.io.File file : projectGroupFiles) {
+                            String groupName = file.getName().replace(".json", "");
+                            System.out.printf("  %d. %s (Project Group)\n", allGroupFiles.size() + 1, groupName);
+                            allGroupFiles.add(file);
+                            groupTypes.add("project");
+                        }
+                    }
+
+                    // Add cluster groups
+                    if (clusterGroupFiles != null && clusterGroupFiles.length > 0) {
+                        System.out.println("\n  Cluster Groups:");
+                        for (java.io.File file : clusterGroupFiles) {
+                            String groupName = file.getName().replace(".json", "");
+                            System.out.printf("  %d. %s (Cluster Group)\n", allGroupFiles.size() + 1, groupName);
+                            allGroupFiles.add(file);
+                            groupTypes.add("cluster");
+                        }
+                    }
+
+                    System.out.print("\nSelect group number: ");
+                    String groupInput = scanner.nextLine().trim();
+
+                    try {
+                        int index = Integer.parseInt(groupInput) - 1;
+                        if (index >= 0 && index < allGroupFiles.size()) {
+                            ObjectMapper mapper = new ObjectMapper();
+                            Map<String, Object> groupData = mapper.readValue(allGroupFiles.get(index), Map.class);
+                            String groupType = groupTypes.get(index);
+
+                            if ("project".equals(groupType)) {
+                                // Direct project group
+                                targetProjectIds = (List<String>) groupData.get("projectIds");
+                                targetProjectNames = (List<String>) groupData.get("projectNames");
+                            } else {
+                                // Cluster group - extract unique projects from clusters
+                                List<Map<String, Object>> clusters = (List<Map<String, Object>>) groupData.get("clusters");
+                                java.util.Set<String> uniqueProjectIds = new java.util.LinkedHashSet<>();
+                                java.util.Map<String, String> projectIdToName = new java.util.LinkedHashMap<>();
+
+                                for (Map<String, Object> cluster : clusters) {
+                                    String projectId = (String) cluster.get("projectId");
+                                    String projectName = (String) cluster.get("projectName");
+                                    uniqueProjectIds.add(projectId);
+                                    projectIdToName.put(projectId, projectName);
+                                }
+
+                                targetProjectIds = new ArrayList<>(uniqueProjectIds);
+                                targetProjectNames = new ArrayList<>();
+                                for (String projectId : targetProjectIds) {
+                                    targetProjectNames.add(projectIdToName.get(projectId));
+                                }
+
+                                System.out.println("✅ Extracted " + targetProjectIds.size() + " unique project(s) from cluster group");
+                            }
+                        } else {
+                            System.out.println("❌ Invalid group number.");
+                            return;
+                        }
+                    } catch (NumberFormatException e) {
+                        System.out.println("❌ Invalid input.");
+                        return;
+                    }
+                    break;
+
+                default:
+                    System.out.println("❌ Invalid option.");
+                    return;
+            }
+
+            if (targetProjectIds.isEmpty()) {
+                System.out.println("❌ No projects selected.");
+                return;
+            }
+
+            // Step 3: Confirm and add
+            System.out.println("\n📝 Summary:");
+            System.out.println("  Entry: " + ipOrCidr + " (" + entryType + ")");
+            if (!comment.isEmpty()) {
+                System.out.println("  Comment: " + comment);
+            }
+            if (deleteAfterDate != null) {
+                System.out.println("  Expires: " +
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+                        .withZone(java.time.ZoneId.systemDefault())
+                        .format(java.time.Instant.parse(deleteAfterDate)));
+            } else {
+                System.out.println("  Expires: Never (permanent)");
+            }
+            System.out.println("  Target Projects (" + targetProjectIds.size() + "):");
+            for (int i = 0; i < targetProjectIds.size(); i++) {
+                String name = targetProjectNames.size() > i ? targetProjectNames.get(i) : targetProjectIds.get(i);
+                System.out.println("    • " + name);
+            }
+
+            System.out.print("\nAdd this entry to " + targetProjectIds.size() + " project(s)? [Y/n]: ");
+            String confirm = scanner.nextLine().trim();
+
+            if ("n".equalsIgnoreCase(confirm) || "no".equalsIgnoreCase(confirm)) {
+                System.out.println("❌ Operation cancelled.");
+                return;
+            }
+
+            // Step 4: Add to all projects
+            System.out.println("\n🔄 Adding network access entry to " + targetProjectIds.size() + " project(s)...");
+            int successCount = 0;
+            int failCount = 0;
+
+            for (int i = 0; i < targetProjectIds.size(); i++) {
+                String projectId = targetProjectIds.get(i);
+                String projectName = targetProjectNames.size() > i ? targetProjectNames.get(i) : projectId;
+
+                try {
+                    if (isCidr) {
+                        networkClient.addCidrBlock(projectId, ipOrCidr, comment, deleteAfterDate);
+                    } else {
+                        networkClient.addIpAddress(projectId, ipOrCidr, comment, deleteAfterDate);
+                    }
+                    System.out.println("  ✅ " + projectName);
+                    successCount++;
+                } catch (Exception e) {
+                    System.out.println("  ❌ " + projectName + ": " + e.getMessage());
+                    failCount++;
+                }
+            }
+
+            System.out.println("\n" + "=".repeat(50));
+            System.out.println("✅ Successfully added to " + successCount + " project(s)");
+            if (failCount > 0) {
+                System.out.println("❌ Failed to add to " + failCount + " project(s)");
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+
+        System.out.print("\nPress Enter to continue...");
+        scanner.nextLine();
+    }
+
     private void runProjectsSubCommand(Scanner scanner) {
         System.out.println("  1. List Projects");
         System.out.println("  2. Get Project Details");

@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# MongoDB Atlas Metrics Analyzer - Command-Line Interface
+# Comprehensive metrics collection, analysis, and reporting tool for Atlas
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAR_FILE="$SCRIPT_DIR/AtlasClient.jar"
+
+# Check if JAR exists
+if [[ ! -f "$JAR_FILE" ]]; then
+    echo "❌ Error: Atlas client JAR not found at $JAR_FILE"
+    echo ""
+    echo "Please build the project first:"
+    echo "  mvn clean package -DskipTests"
+    echo ""
+    exit 1
+fi
+
+# Display header for interactive mode if no arguments provided
+if [[ $# -eq 0 ]]; then
+    echo "📊 MongoDB Atlas Metrics Analyzer"
+    echo "================================"
+    echo ""
+    echo "Usage: atlas-metrics [OPTIONS]"
+    echo ""
+    echo "For help: atlas-metrics --help"
+    echo ""
+    echo "Examples:"
+    echo "  # Basic metrics collection with CSV export"
+    echo "  atlas-metrics --exportCsv"
+    echo ""
+    echo "  # Generate visual charts"
+    echo "  atlas-metrics --generateCharts --period=PT24H"
+    echo ""
+    echo "  # Collect and store metrics for historical analysis"
+    echo "  atlas-metrics --mongodbUri=mongodb://localhost:27017 --collect"
+    echo ""
+    exit 0
+fi
+
+# Run the Atlas Metrics Analyzer with all provided arguments
+java -cp "$JAR_FILE" com.mongodb.atlas.api.AtlasMetricsAnalyzer "$@"

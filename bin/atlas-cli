@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# MongoDB Atlas CLI - Comprehensive Command-Line Interface
+# Provides unified access to Atlas API functionality including alerts management
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAR_FILE="$SCRIPT_DIR/AtlasClient.jar"
+
+# Check if JAR exists
+if [[ ! -f "$JAR_FILE" ]]; then
+    echo "❌ Error: Atlas client JAR not found at $JAR_FILE"
+    echo ""
+    echo "Please build the project first:"
+    echo "  mvn clean package -DskipTests"
+    echo ""
+    exit 1
+fi
+
+# Display header for interactive mode if no arguments provided
+if [[ $# -eq 0 ]]; then
+    echo "🍃 MongoDB Atlas CLI"
+    echo "==================="
+    echo ""
+fi
+
+# Run the Atlas CLI main class with all provided arguments
+java -cp "$JAR_FILE" com.mongodb.atlas.api.cli.AtlasCliMain "$@"
